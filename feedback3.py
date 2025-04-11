@@ -14,8 +14,7 @@ import openai
 # Use Streamlit secrets for sensitive values
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 MURAL_API_TOKEN = st.secrets["MURAL_API_TOKEN"]
-MURAL_WORKSPACE_ID = st.secrets["MURAL_WORKSPACE_ID"]
-MURAL_BOARD_ID = st.secrets["MURAL_BOARD_ID"]
+MURAL_ID = st.secrets["MURAL_ID"]
 
 # Load dataset
 csv_file = 'AI-Powered_Valuation_Enriched.csv'
