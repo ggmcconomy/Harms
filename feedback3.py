@@ -14,7 +14,8 @@ import openai
 # Use Streamlit secrets for sensitive values
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 MURAL_API_TOKEN = st.secrets["MURAL_API_TOKEN"]
-MURAL_ID = st.secrets["MURAL_ID"]
+MURAL_WORKSPACE_ID = st.secrets["MURAL_WORKSPACE_ID"]
+MURAL_BOARD_ID = st.secrets["MURAL_BOARD_ID"]
 
 # Load dataset
 csv_file = 'AI-Powered_Valuation_Enriched.csv'
@@ -44,7 +45,7 @@ index.add(csv_embeddings)
 # Streamlit app
 st.title("AI-Powered Risk Feedback & Mural Integration")
 
-params = st.experimental_get_query_params()
+params = st.query_params
 session_id = params.get('session', [None])[0]
 
 # Load session
