@@ -5,21 +5,17 @@ import requests
 import pandas as pd
 import numpy as np
 import streamlit as st
-from dotenv import load_dotenv
 from collections import Counter
 from sentence_transformers import SentenceTransformer
 from sklearn.cluster import KMeans
 import faiss
 import openai
 
-# Load environment variables
-load_dotenv()
-openai.api_key = os.getenv("OPENAI_API_KEY")
-
-# Mural credentials (set these in your .env)
-MURAL_API_TOKEN = os.getenv("MURAL_API_TOKEN")
-MURAL_WORKSPACE_ID = os.getenv("MURAL_WORKSPACE_ID")
-MURAL_BOARD_ID = os.getenv("MURAL_BOARD_ID")
+# Use Streamlit secrets for sensitive values
+openai.api_key = st.secrets["OPENAI_API_KEY"]
+MURAL_API_TOKEN = st.secrets["MURAL_API_TOKEN"]
+MURAL_WORKSPACE_ID = st.secrets["MURAL_WORKSPACE_ID"]
+MURAL_BOARD_ID = st.secrets["MURAL_BOARD_ID"]
 
 # Load dataset
 csv_file = 'AI-Powered_Valuation_Enriched.csv'
