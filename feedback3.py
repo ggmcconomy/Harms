@@ -66,6 +66,7 @@ else:
     if st.button("Run Analysis"):
         human_risks = [r.strip() for r in human_input.split('\n') if r.strip()]
         human_embeddings = embedder.encode(human_risks)
+        human_embeddings = np.array(human_embeddings)  # ✅ convert to NumPy array
         distances, indices = index.search(human_embeddings, 5)
         similar_risks = [df.iloc[idx].to_dict('records') for idx in indices]
 
