@@ -1,176 +1,157 @@
-import pandas as pd
-import streamlit as st
-from sentence_transformers import SentenceTransformer
-import faiss
-import numpy as np
-import openai
-from sklearn.cluster import KMeans
-from collections import Counter
-from dotenv import load_dotenv
 import os
+import json
+import uuid
+import requests
+import pandas as pd
+import numpy as np
+import streamlit as st
+from dotenv import load_dotenv
+from collections import Counter
+from sentence_transformers import SentenceTransformer
+from sklearn.cluster import KMeans
+import faiss
+import openai
 
-# Load OpenAI API key from .env file
+# Load environment variables
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# Load CSV file
-csv_file = 'AI-Powered_Valuation_Enriched.csv'  # Update this if your CSV filename differs
-try:
-    df = pd.read_csv(csv_file)
-except FileNotFoundError:
-    st.error(f"Could not find '{csv_file}'. Please upload or place it in the correct directory.")
-    st.stop()
+# Mural credentials (set these in your .env)
+MURAL_API_TOKEN = os.getenv("MURAL_API_TOKEN")
+MURAL_WORKSPACE_ID = os.getenv("MURAL_WORKSPACE_ID")
+MURAL_BOARD_ID = os.getenv("MURAL_BOARD_ID")
 
+# Load dataset
+csv_file = 'AI-Powered_Valuation_Enriched.csv'
+df = pd.read_csv(csv_file)
 
-# Preprocess risk descriptions
+# Preprocess text
 def preprocess_text(text):
     text = str(text).lower()
-    text = ''.join([c for c in text if c.isalnum() or c.isspace()])
-    return text
-
+    return ''.join([c for c in text if c.isalnum() or c.isspace()])
 
 df['processed_description'] = df['risk_description'].apply(preprocess_text)
 
+# Embeddings
+embedder = SentenceTransformer('all-MiniLM-L6-v2')
+csv_embeddings = embedder.encode(df['processed_description'].tolist(), show_progress_bar=False)
+
+# Cluster for theme detection
+num_clusters = 10
+kmeans = KMeans(n_clusters=num_clusters, random_state=42)
+df['cluster'] = kmeans.fit_predict(csv_embeddings)
+
+# Build FAISS index
+dimension = csv_embeddings.shape[1]
+index = faiss.IndexFlatL2(dimension)
+index.add(csv_embeddings)
+
 # Streamlit app
-st.title("AI Deployment Risk Analysis Feedback Tool")
+st.title("AI-Powered Risk Feedback & Mural Integration")
 
-# Sidebar customization controls
-st.sidebar.header("Analysis Settings")
-num_clusters = st.sidebar.slider("Number of Themes (Clusters)", min_value=5, max_value=20, value=10,
-                                 help="Set the number of risk themes to identify.")
-severity_threshold = st.sidebar.slider("Severity Threshold", min_value=0.0, max_value=5.0, value=4.0, step=0.5,
-                                       help="Filter risks with severity above this value.")
-top_k = st.sidebar.number_input("Top Similar Risks to Retrieve", min_value=1, max_value=10, value=5,
-                                help="Number of similar risks to show per input.")
+params = st.experimental_get_query_params()
+session_id = params.get('session', [None])[0]
 
-# Instructions
-st.write("""
-**Instructions**:  
-Enter your AI deployment risks below (one per line). Use the settings on the left to customize the analysis:  
-- **Number of Themes**: Adjust how many risk themes are grouped.  
-- **Severity Threshold**: Focus on high-severity risks above this level.  
-- **Top Similar Risks**: Set how many similar risks to retrieve.  
-Click "Run Analysis" to generate feedback on gaps in your risk analysis, including missed themes, risk types, stakeholders, and high-severity risks.
-""")
+# Load session
+if session_id:
+    try:
+        with open(f"sessions/{session_id}.json", "r") as f:
+            session_data = json.load(f)
+        st.markdown("### Previously Generated Feedback")
+        st.markdown(session_data["feedback"])
+        missed_risks = session_data["top_missed_risks"]
+    except FileNotFoundError:
+        st.warning("Session not found.")
+        st.stop()
+else:
+    # Human input
+    st.markdown("## Input Your Risks")
+    human_input = st.text_area("Paste risks below (one per line):")
+    if st.button("Run Analysis"):
+        human_risks = [r.strip() for r in human_input.split('\n') if r.strip()]
+        human_embeddings = embedder.encode(human_risks)
+        distances, indices = index.search(human_embeddings, 5)
+        similar_risks = [df.iloc[idx].to_dict('records') for idx in indices]
 
-# Text area for user input
-human_risks_input = st.text_area("Your AI Deployment Risks", height=200,
-                                 placeholder="e.g., 'System crashes due to overload'\n'Inaccurate predictions'")
+        human_clusters = set([r['cluster'] for group in similar_risks for r in group])
+        human_types = set([r['risk_type'] for group in similar_risks for r in group])
+        human_stakeholders = set([r['stakeholder'] for group in similar_risks for r in group])
 
-# Run button
-if st.button("Run Analysis"):
-    if human_risks_input:
-        human_risks = [risk.strip() for risk in human_risks_input.split('\n') if risk.strip()]
-        if human_risks:
-            # Create embeddings
-            embedder = SentenceTransformer('all-MiniLM-L6-v2')
-            csv_embeddings = embedder.encode(df['processed_description'].tolist(), show_progress_bar=True)
+        missed_clusters = set(df['cluster']) - human_clusters
+        missed_types = set(df['risk_type']) - human_types
+        missed_stakeholders = set(df['stakeholder']) - human_stakeholders
 
-            # Cluster embeddings to identify themes
-            kmeans = KMeans(n_clusters=num_clusters, random_state=42)
-            df['cluster'] = kmeans.fit_predict(csv_embeddings)
+        high_severity_df = df[df['severity'] >= 4.0]
+        missed_high_severity = high_severity_df[~high_severity_df['cluster'].isin(human_clusters)]
+        top_missed = missed_high_severity.sort_values(by='combined_score', ascending=False).head(5)
 
-            # Summarize themes from CSV
-            cluster_summary = df.groupby('cluster').agg(
-                most_common_risk_type=('risk_type', lambda x: Counter(x).most_common(1)[0][0] if len(x) > 0 else 'N/A'),
-                most_common_stakeholder=(
-                'stakeholder', lambda x: Counter(x).most_common(1)[0][0] if len(x) > 0 else 'N/A'),
-                example_risks=('risk_description', lambda x: x.head(3).tolist())
-            ).reset_index()
+        # Construct prompt
+        prompt = f"""
+        The user provided these risks: {', '.join(human_risks)}.
+        Based on our database, they missed these critical areas:
+        - Themes: {', '.join(map(str, missed_clusters))}
+        - Risk Types: {', '.join(missed_types)}
+        - Stakeholders: {', '.join(missed_stakeholders)}
+        Top missed high-severity risks:
+        {chr(10).join('- ' + r for r in top_missed['risk_description'].tolist())}
+        Provide feedback to improve their risk analysis.
+        """
+        response = openai.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "You are a helpful AI risk advisor."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        feedback = response.choices[0].message.content
+        st.markdown("### Feedback from AI")
+        st.markdown(feedback)
 
-            # Build FAISS index for retrieval
-            dimension = csv_embeddings.shape[1]
-            index = faiss.IndexFlatL2(dimension)
-            index.add(csv_embeddings)
+        # Save session
+        session_id = str(uuid.uuid4())
+        os.makedirs("sessions", exist_ok=True)
+        with open(f"sessions/{session_id}.json", "w") as f:
+            json.dump({
+                "feedback": feedback,
+                "top_missed_risks": top_missed.to_dict(orient="records")
+            }, f)
+        st.success("Session saved!")
+        st.markdown(f"[Reopen this session](?session={session_id})")
+        missed_risks = top_missed.to_dict(orient="records")
 
+# Post risks to Mural
+if "missed_risks" in locals():
+    if "posted_count" not in st.session_state:
+        st.session_state.posted_count = 0
 
-            # Retrieve similar risks
-            def retrieve_similar_risks(human_risks, top_k=top_k):
-                human_embeddings = embedder.encode(human_risks)
-                distances, indices = index.search(human_embeddings, top_k)
-                similar_risks = [df.iloc[idx].to_dict('records') for idx in indices]
-                return similar_risks
-
-
-            similar_risks = retrieve_similar_risks(human_risks)
-
-            # What human risks cover
-            human_clusters = set([sr['cluster'] for sublist in similar_risks for sr in sublist])
-            human_risk_types = set([sr['risk_type'] for sublist in similar_risks for sr in sublist])
-            human_stakeholders = set([sr['stakeholder'] for sublist in similar_risks for sr in sublist])
-
-            # What’s missing from human risks
-            missed_clusters = set(df['cluster']) - human_clusters
-            missed_risk_types = set(df['risk_type']) - human_risk_types
-            missed_stakeholders = set(df['stakeholder']) - human_stakeholders
-
-            # Filter high-severity missed risks
-            high_severity_df = df[df['severity'] >= severity_threshold]
-            missed_high_severity_risks = high_severity_df[~high_severity_df['cluster'].isin(human_clusters)]
-            top_missed_risks = missed_high_severity_risks.sort_values(by='combined_score', ascending=False).head(3)
-
-            # Examples for missed themes
-            missed_theme_examples = []
-            for cluster in missed_clusters:
-                summary = cluster_summary[cluster_summary['cluster'] == cluster].iloc[0]
-                theme = f"{summary['most_common_risk_type']} risks for {summary['most_common_stakeholder']}"
-                examples = ", ".join(summary['example_risks'])
-                missed_theme_examples.append(f"- Theme: {theme}\n  Examples: {examples}")
-
-            # Examples for missed risk types
-            missed_risk_type_examples = []
-            for rt in missed_risk_types:
-                examples = df[df['risk_type'] == rt]['risk_description'].head(2).tolist
-                missed_risk_type_examples.append(f"- Risk Type: {rt}\n  Examples: {', '.join(examples)}")
-
-            # Examples for missed stakeholders
-            missed_stakeholder_examples = []
-            for sh in missed_stakeholders:
-                examples = df[df['stakeholder'] == sh]['risk_description'].head(2).tolist()
-                missed_stakeholder_examples.append(f"- Stakeholder: {sh}\n  Examples: {', '.join(examples)}")
-
-            # High-severity missed risks
-            high_severity_examples = []
-            for _, row in top_missed_risks.iterrows():
-                high_severity_examples.append(
-                    f"- '{row['risk_description']}' (Severity: {row['severity']}, Combined Score: {row['combined_score']})")
-
-            # Construct prompt for GPT-4
-            prompt = f"""
-            You are an AI risk analysis expert. A user has provided these AI deployment risks:
-            {', '.join(human_risks)}
-
-            Based on the risk database, here’s what they seem to have missed:
-
-            **Missed Themes:**
-            {chr(10).join(missed_theme_examples) if missed_theme_examples else 'None'}
-
-            **Missed Risk Types:**
-            {chr(10).join(missed_risk_type_examples) if missed_risk_type_examples else 'None'}
-
-            **Missed Stakeholders:**
-            {chr(10).join(missed_stakeholder_examples) if missed_stakeholder_examples else 'None'}
-
-            **High-Severity Missed Risks:**
-            {chr(10).join(high_severity_examples) if high_severity_examples else 'None'}
-
-            Provide direct feedback on what the user appears to have missed, focusing on high-risk areas. 
-            Use the examples to explain why these gaps matter and suggest how they can improve their analysis.
-            """
-
-            response = openai.chat.completions.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant."},
-                    {"role": "user", "content": prompt}
-                ]
+    if st.button("Post Next Missed Risk to Mural"):
+        if st.session_state.posted_count < len(missed_risks):
+            risk = missed_risks[st.session_state.posted_count]
+            mural_url = f"https://your-streamlit-app.com/?session={session_id}"
+            payload = {
+                "x": 1000 + st.session_state.posted_count * 100,
+                "y": 1000,
+                "width": 300,
+                "height": 150,
+                "text": f"\ud83e\udde0 AI Risk Suggestion:\n{risk['risk_description']}\n\n[More]( {mural_url} )",
+                "shape": "square",
+                "color": "yellow",
+                "layer": "content",
+                "type": "sticky_note"
+            }
+            headers = {
+                'Authorization': f'Bearer {MURAL_API_TOKEN}',
+                'Content-Type': 'application/json'
+            }
+            mural_response = requests.post(
+                f"https://api.mural.co/v1/workspaces/{MURAL_WORKSPACE_ID}/murals/{MURAL_BOARD_ID}/widgets",
+                headers=headers,
+                json=payload
             )
-            feedback = response.choices[0].message.content
-
-            # Display feedback
-            st.subheader("Feedback on Your Risk Analysis")
-            st.markdown(feedback)
+            if mural_response.status_code in [200, 201]:
+                st.success(f"Posted: {risk['risk_description']}")
+                st.session_state.posted_count += 1
+            else:
+                st.error(f"Failed to post to Mural: {mural_response.text}")
         else:
-            st.warning("Please enter at least one risk.")
-    else:
-        st.info("Enter your risks above and click 'Run Analysis' to get feedback.")
+            st.info("All top risks have been posted.")
