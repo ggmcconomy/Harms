@@ -13,6 +13,19 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from urllib.parse import urlencode
 
+def get_authorization_url():
+    params = {
+        "client_id": MURAL_CLIENT_ID,
+        "redirect_uri": MURAL_REDIRECT_URI,
+        "scope": "murals:read murals:write",
+        "state": str(uuid.uuid4()),
+        "response_type": "code"
+    }
+    full_url = f"https://app.mural.co/api/public/v1/authorization/oauth2?{urlencode(params)}"
+    st.write(f"**DEBUG OAuth URL**: {full_url}")
+    return full_url
+
+
 # --- Configuration ---
 st.set_page_config(page_title="AI Risk Feedback & Brainstorming", layout="wide")
 st.title("🤖 AI-Powered Risk Analysis and Brainstorming for Mural")
