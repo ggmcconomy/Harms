@@ -33,8 +33,8 @@ except KeyError as e:
 st.text("Secrets loaded.")
 
 # Validate board ID
-if MURAL_BOARD_ID != "1740767964926":
-    st.warning("MURAL_BOARD_ID should be '1740767964926'. Update secrets.toml if incorrect.")
+if MURAL_BOARD_ID != "1744450640925":
+    st.warning("MURAL_BOARD_ID should be '1744450640925'. Update secrets.toml if incorrect.")
 
 # Initialize OpenAI client
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
