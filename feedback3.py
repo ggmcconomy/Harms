@@ -12,6 +12,7 @@ import faiss
 from openai import OpenAI
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from urllib.parse import urlencode
 
 # --- Configuration ---
 st.set_page_config(page_title="AI Risk Feedback & Brainstorming", layout="wide")
@@ -20,14 +21,98 @@ st.title("🤖 AI-Powered Risk Analysis and Brainstorming for Mural")
 # Load secrets
 try:
     OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
-    MURAL_API_TOKEN = st.secrets["MURAL_API_TOKEN"]
+    MURAL_CLIENT_ID = st.secrets["MURAL_CLIENT_ID"]
+    MURAL_CLIENT_SECRET = st.secrets["MURAL_CLIENT_SECRET"]
     MURAL_BOARD_ID = st.secrets["MURAL_BOARD_ID"]
+    MURAL_REDIRECT_URI = st.secrets["MURAL_REDIRECT_URI"]
 except KeyError as e:
-    st.error(f"Missing secret: {e}. Please configure secrets in .streamlit/secrets.toml.")
+    st.error(f"Missing secret: {e}. Please configure secrets in .streamlit/secrets.toml with MURAL_CLIENT_ID, MURAL_CLIENT_SECRET, MURAL_BOARD_ID, MURAL_REDIRECT_URI.")
     st.stop()
+
+# Validate board ID
+if MURAL_BOARD_ID != "1740767964926":
+    st.warning("MURAL_BOARD_ID should be '1740767964926'. Update secrets.toml if incorrect.")
 
 # Initialize OpenAI client
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
+
+# --- OAuth Functions ---
+def get_authorization_url():
+    params = {
+        "client_id": MURAL_CLIENT_ID,
+        "redirect_uri": MURAL_REDIRECT_URI,
+        "scope": "murals:read murals:write",
+        "state": str(uuid.uuid4()),
+        "response_type": "code"
+    }
+    return f"https://app.mural.co/api/public/v1/authorization/oauth2/?{urlencode(params)}"
+
+def exchange_code_for_token(code):
+    url = "https://app.mural.co/api/public/v1/authorization/oauth2/token"
+    data = {
+        "client_id": MURAL_CLIENT_ID,
+        "client_secret": MURAL_CLIENT_SECRET,
+        "redirect_uri": MURAL_REDIRECT_URI,
+        "code": code,
+        "grant_type": "authorization_code"
+    }
+    response = requests.post(url, data=data)
+    if response.status_code == 200:
+        return response.json()
+    else:
+        st.error(f"Failed to exchange code for token: {response.status_code} - {response.text}")
+        return None
+
+def refresh_access_token(refresh_token):
+    url = "https://app.mural.co/api/public/v1/authorization/oauth2/token"
+    data = {
+        "client_id": MURAL_CLIENT_ID,
+        "client_secret": MURAL_CLIENT_SECRET,
+        "refresh_token": refresh_token,
+        "grant_type": "refresh_token"
+    }
+    response = requests.post(url, data=data)
+    if response.status_code == 200:
+        return response.json()
+    else:
+        st.error(f"Failed to refresh token: {response.status_code} - {response.text}")
+        return None
+
+# --- Handle OAuth Flow ---
+if "access_token" not in st.session_state:
+    st.session_state.access_token = None
+    st.session_state.refresh_token = None
+
+# Check for authorization code in URL (callback)
+query_params = st.query_params
+auth_code = query_params.get("code")
+if auth_code and not st.session_state.access_token:
+    token_data = exchange_code_for_token(auth_code)
+    if token_data:
+        st.session_state.access_token = token_data["access_token"]
+        st.session_state.refresh_token = token_data.get("refresh_token")
+        st.session_state.token_expires_in = token_data.get("expires_in", 900)  # Default 15 min
+        st.session_state.token_timestamp = pd.Timestamp.now().timestamp()
+        # Clear query params to avoid reprocessing
+        st.query_params.clear()
+        st.success("Successfully authenticated with Mural!")
+
+# Prompt user to authenticate if no token
+if not st.session_state.access_token:
+    auth_url = get_authorization_url()
+    st.markdown(f"Please [authorize the app]({auth_url}) to access Mural.")
+    st.stop()
+
+# Refresh token if expired
+if st.session_state.access_token:
+    current_time = pd.Timestamp.now().timestamp()
+    if (current_time - st.session_state.token_timestamp) > (st.session_state.token_expires_in - 60):
+        token_data = refresh_access_token(st.session_state.refresh_token)
+        if token_data:
+            st.session_state.access_token = token_data["access_token"]
+            st.session_state.refresh_token = token_data.get("refresh_token", st.session_state.refresh_token)
+            st.session_state.token_expires_in = token_data.get("expires_in", 900)
+            st.session_state.token_timestamp = pd.Timestamp.now().timestamp()
 
 # --- Load Risk Dataset ---
 csv_file = 'AI-Powered_Valuation_Enriched.csv'
@@ -52,25 +137,32 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("📥 Pull Mural Notes")
     if st.button("🔄 Pull Sticky Notes from Mural"):
-        if not MURAL_API_TOKEN:
-            st.error("Mural API token is missing. Check st.secrets['MURAL_API_TOKEN'].")
-        else:
-            try:
-                headers = {'Authorization': f'Bearer {MURAL_API_TOKEN}'}
-                url = f"https://app.mural.co/api/public/v1/murals/{MURAL_BOARD_ID}/widgets"
-                session = requests.Session()
-                retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
-                session.mount('https://', HTTPAdapter(max_retries=retries))
-                mural_data = session.get(url, headers=headers)
-                if mural_data.status_code == 200:
-                    widgets = mural_data.json().get("data", [])
-                    stickies = [w.get('text', '') for w in widgets if w.get('type') == 'sticky_note' and w.get('text')]
-                    st.session_state['mural_notes'] = stickies
-                    st.success(f"Pulled {len(stickies)} sticky notes from Mural.")
-                else:
-                    st.error(f"Failed to pull from Mural: {mural_data.status_code} - {mural_data.text}")
-            except Exception as e:
-                st.error(f"Error connecting to Mural: {str(e)}")
+        try:
+            headers = {'Authorization': f'Bearer {st.session_state.access_token}'}
+            url = f"https://app.mural.co/api/public/v1/murals/{MURAL_BOARD_ID}/widgets"
+            session = requests.Session()
+            retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
+            session.mount('https://', HTTPAdapter(max_retries=retries))
+            mural_data = session.get(url, headers=headers)
+            if mural_data.status_code == 200:
+                widgets = mural_data.json().get("data", [])
+                stickies = [w.get('text', '') for w in widgets if w.get('type') == 'sticky_note' and w.get('text')]
+                st.session_state['mural_notes'] = stickies
+                st.success(f"Pulled {len(stickies)} sticky notes from Mural.")
+            else:
+                st.error(f"Failed to pull from Mural: {mural_data.status_code} - {mural_data.text}")
+                if mural_data.status_code == 401:
+                    st.warning("OAuth token invalid or expired. Please re-authenticate.")
+                    st.session_state.access_token = None
+                    auth_url = get_authorization_url()
+                    st.markdown(f"[Re-authorize the app]({auth_url}).")
+                elif mural_data.status_code == 403:
+                    st.warning("Access denied. Ensure your account is a collaborator on the mural: https://app.mural.co/t/aiimpacttesting2642/m/aiimpacttesting2642/1740767964926.")
+                elif mural_data.status_code == 404:
+                    st.warning("Mural not found. Confirm MURAL_BOARD_ID is '1740767964926'.")
+                st.write("Raw API response:", mural_data.json())
+        except Exception as e:
+            st.error(f"Error connecting to Mural: {str(e)}")
 
 # --- Initialize Model and Index ---
 embedder = SentenceTransformer('all-MiniLM-L6-v2')
@@ -161,7 +253,7 @@ if 'missed_risks' in st.session_state:
                 "type": "sticky_note"
             }
             headers = {
-                'Authorization': f'Bearer {MURAL_API_TOKEN}',
+                'Authorization': f'Bearer {st.session_state.access_token}',
                 'Content-Type': 'application/json'
             }
             url = f"https://app.mural.co/api/public/v1/murals/{MURAL_BOARD_ID}/widgets"
@@ -175,6 +267,13 @@ if 'missed_risks' in st.session_state:
                     st.session_state.posted_count += 1
                 else:
                     st.error(f"Error posting to Mural: {res.status_code} - {res.text}")
+                    if res.status_code == 401:
+                        st.warning("OAuth token invalid. Please re-authenticate.")
+                        st.session_state.access_token = None
+                        auth_url = get_authorization_url()
+                        st.markdown(f"[Re-authorize the app]({auth_url}).")
+                    elif res.status_code == 403:
+                        st.warning("Access denied for posting. Ensure collaborator status.")
             except Exception as e:
                 st.error(f"Error posting to Mural: {str(e)}")
         else:
