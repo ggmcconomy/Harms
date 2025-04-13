@@ -311,10 +311,8 @@ with st.sidebar:
                 if mural_data.status_code == 200:
                     widgets = mural_data.json().get("value", mural_data.json().get("data", []))
                     st.write("Debug: Total Widgets:", len(widgets))
-                    # Log all widget types
                     widget_types = [w.get('type', 'unknown') for w in widgets]
                     st.write("Debug: Widget Types:", widget_types)
-                    # Flexible matching for sticky note type
                     sticky_widgets = [w for w in widgets if w.get('type', '').replace(' ', '_').lower() == 'sticky_note']
                     st.write("Debug: Sticky Notes:", sticky_widgets)
                     stickies = []
@@ -402,7 +400,7 @@ if st.button("🔍 Generate Feedback"):
                 st.markdown("### 🧠 Feedback:")
                 st.markdown(feedback)
 
-                st.session_state['missed_risks'] = top_missed.to_dict('records')
+                st.session_state['missed_risks'] = top_missed.to_dict(orient='records')
                 st.session_state['feedback'] = feedback
             except Exception as e:
                 st.error(f"OpenAI API error: {str(e)}")
@@ -429,19 +427,21 @@ if 'missed_risks' in st.session_state:
                     "text": f"🧠 Missed Risk:\n{risk['risk_description']}\n(Severity: {risk['severity']})",
                     "shape": "rectangle",
                     "style": {"backgroundColor": "#FFFF99"},
-                    "type": "sticky_note"
+                    "type": "sticky note"  # Match GET response format
                 }
                 headers = {
                     'Authorization': f'Bearer {st.session_state.access_token}',
                     'Content-Type': 'application/json'
                 }
                 mural_id = custom_mural_id or st.session_state.get('temp_mural_id', MURAL_BOARD_ID)
+                # Try full ID first
+                st.write("Debug: Trying POST with mural ID:", mural_id)
                 url = f"https://app.mural.co/api/public/v1/murals/{mural_id}/widgets"
                 try:
                     session = requests.Session()
                     retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
                     session.mount('https://', HTTPAdapter(max_retries=retries))
-                    st.write("Debug: API Headers:", headers)
+                    st.write("Debug: POST Payload:", payload)
                     res = session.post(url, headers=headers, json=payload)
                     st.write("Debug: Post response:", res.status_code, res.json())
                     if res.status_code in [200, 201]:
@@ -449,16 +449,27 @@ if 'missed_risks' in st.session_state:
                         st.session_state.posted_count += 1
                     else:
                         st.error(f"Error posting to Mural: {res.status_code} - {res.text}")
-                        if res.status_code == 401:
-                            st.warning("OAuth token invalid. Please re-authenticate.")
-                            st.session_state.access_token = None
-                            auth_url = get_authorization_url()
-                            st.markdown(f"[Re-authorize the app]({auth_url}).")
-                        elif res.status_code == 403:
-                            st.warning("Access denied for posting. Ensure collaborator status.")
-                        elif res.status_code == 404:
-                            st.warning(f"Mural ID {mural_id} not found. Try a different ID.")
-                    st.write("Raw post response:", res.json())
+                        # Try numeric ID as fallback
+                        numeric_id = normalize_mural_id(mural_id)
+                        st.write("Debug: Trying POST with numeric mural ID:", numeric_id)
+                        url = f"https://app.mural.co/api/public/v1/murals/{numeric_id}/widgets"
+                        res = session.post(url, headers=headers, json=payload)
+                        st.write("Debug: Post response (numeric ID):", res.status_code, res.json())
+                        if res.status_code in [200, 201]:
+                            st.success(f"Posted: {risk['risk_description']}")
+                            st.session_state.posted_count += 1
+                        else:
+                            st.error(f"Error posting to Mural (numeric ID): {res.status_code} - {res.text}")
+                            if res.status_code == 401:
+                                st.warning("OAuth token invalid. Please re-authenticate.")
+                                st.session_state.access_token = None
+                                auth_url = get_authorization_url()
+                                st.markdown(f"[Re-authorize the app]({auth_url}).")
+                            elif res.status_code == 403:
+                                st.warning("Access denied for posting. Ensure collaborator status.")
+                            elif res.status_code == 404:
+                                st.warning(f"Mural ID {numeric_id} not found. Try creating a new mural.")
+                        st.write("Raw post response:", res.json())
                 except Exception as e:
                     st.error(f"Error posting to Mural: {str(e)}")
             else:
