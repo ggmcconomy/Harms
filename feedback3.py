@@ -116,7 +116,7 @@ def create_coverage_chart(title, categories, covered_counts, missed_counts, file
         st.error(f"Error creating chart {filename}: {str(e)}")
         return False
 
-def create_coverage_charts(covered_stakeholders, missed_stakeholders, covered_types, missed_types, covered_subtypes, missed_subtypes, covered_clusters, missed_clusters, cluster_labels, top_n_subtypes=5):
+def create_coverage_charts(covered_stakeholders, missed_stakeholders, covered_types, missed_types, covered_subtypes, missed_subtypes, top_n_subtypes=5):
     """Create bar charts for coverage visualization."""
     try:
         plt.style.use('ggplot')
@@ -162,21 +162,6 @@ def create_coverage_charts(covered_stakeholders, missed_stakeholders, covered_ty
         create_coverage_chart(f"Top {top_n_subtypes} Overlooked Risk Subtype Gaps", top_missed_subtypes, covered_counts, missed_counts, 'risk_subtype_coverage.png')
     else:
         st.warning("No risk subtype data to display.")
-
-    # Cluster Chart
-    clusters = sorted(set(covered_clusters + missed_clusters))
-    covered_counts = [covered_clusters.count(c) for c in clusters]
-    missed_counts = [missed_clusters.count(c) for c in clusters]
-    non_zero_indices = [i for i, (c, m) in enumerate(zip(covered_counts, missed_counts)) if c > 0 or m > 0]
-    clusters = [clusters[i] for i in non_zero_indices]
-    covered_counts = [covered_counts[i] for i in non_zero_indices]
-    missed_counts = [missed_counts[i] for i in non_zero_indices]
-    
-    if clusters:
-        cluster_display_labels = [cluster_labels.get(c, f"Cluster {c}") for c in clusters]
-        create_coverage_chart("Cluster Coverage Gaps", cluster_display_labels, covered_counts, missed_counts, 'cluster_coverage.png')
-    else:
-        st.warning("No cluster data to display.")
 
 # --- OAuth Functions ---
 def get_authorization_url():
@@ -449,8 +434,7 @@ if st.button("🔍 Generate Coverage Feedback"):
                     ("Underrepresented Stakeholders", underrepresented_stakeholders)
                 ]:
                     if items:
-                        # Select up to 3 examples for each category
-                        for item in items[:3]:
+                        for item in items[:3]:  # Limit to 3 examples per category
                             if "Types" in category:
                                 example_rows = df[df['risk_type'] == item].head(1)
                             elif "Subtypes" in category:
@@ -461,28 +445,31 @@ if st.button("🔍 Generate Coverage Feedback"):
                                 example = example_rows.iloc[0]
                                 context_examples.append(f"{category}: {item} - Example: {example['risk_description']} (Type: {example['risk_type']}, Subtype: {example['risk_subtype']}, Stakeholder: {example['stakeholder']})")
 
-                # Join the examples into a string
                 context_str = "\n".join(context_examples)
 
-                # Prepare coverage feedback prompt with limited context
+                # Prepare coverage feedback prompt
                 domain = df['domain'].iloc[0] if 'domain' in df.columns else "AI deployment"
                 prompt = f"""
                 You are an AI risk analysis expert for {domain}, focusing solely on harms identification. The user has identified these finalized risks from Mural:
                 {chr(10).join(f'- {r}' for r in human_risks)}
 
-                Based on the user's risks and the following examples from the risk database:
+                Using the following examples from the risk database:
                 {context_str}
 
-                Provide feedback on the coverage of risk types, subtypes, and stakeholders in the user's harms analysis:
+                Provide feedback on the gaps in the user's harms analysis, focusing on risk types, subtypes, and stakeholders that are overlooked or insufficiently developed:
 
-                1. **Covered Areas**: Briefly summarize the risk types, subtypes, and stakeholders that are addressed in the user's risks, based on their input.
-                2. **Gaps in Coverage**: Identify risk types, subtypes, or stakeholders that are overlooked. For each:
-                   - If completely missing, state that the category is not represented in the user's risks and explain why this gap matters for a comprehensive harms analysis.
-                   - If insufficiently developed, note that the category is mentioned but lacks depth or breadth (e.g., missing key aspects or examples), and explain how this limits the analysis.
+                1. **Missing Risk Types, Subtypes, or Stakeholders**:
+                   - Identify categories completely missing from the user's risks and explain why they are critical for a comprehensive harms analysis.
                    - Use the provided examples to illustrate what comprehensive coverage looks like.
-                3. **Suggestions for Improvement**: Offer actionable advice on how to address these gaps by adding new risks or expanding existing ones in Mural, focusing on the types, subtypes, and stakeholders rather than specific risk instances.
 
-                Ensure the feedback reflects on what the user has covered while emphasizing the importance of addressing all relevant risk categories for a thorough harms analysis. Keep the tone constructive and tie suggestions to the examples provided.
+                2. **Underrepresented Risk Types, Subtypes, or Stakeholders**:
+                   - Highlight categories that are mentioned but lack depth or breadth (e.g., missing key aspects or examples).
+                   - Explain how this limits the analysis and use the provided examples to show what could be added.
+
+                3. **Suggestions for Improvement**:
+                   - Offer actionable advice on how to address these gaps by adding new risks or expanding existing ones in Mural, focusing on the types, subtypes, and stakeholders rather than specific risk instances.
+
+                Ensure the feedback is constructive and directly tied to the examples provided, emphasizing the importance of addressing all relevant risk categories for a thorough harms analysis.
                 """
 
                 try:
@@ -507,13 +494,11 @@ if st.button("🔍 Generate Coverage Feedback"):
                     missed_types_list = list(missed_types)
                     missed_subtypes_list = list(missed_subtypes)
 
-                    # Generate coverage charts with user-selected top_n_subtypes
+                    # Generate coverage charts
                     create_coverage_charts(
                         covered_stakeholders_list, missed_stakeholders_list,
                         covered_types_list, missed_types_list,
                         covered_subtypes_list, missed_subtypes_list,
-                        [], [],  # Clusters not used in this version
-                        cluster_labels,
                         top_n_subtypes=top_n_subtypes
                     )
 
@@ -546,67 +531,16 @@ if 'coverage_data' in st.session_state:
     except FileNotFoundError:
         st.error("Coverage charts failed to generate. Please try generating feedback again.")
 
-# --- Section 4: Coverage Feedback ---
+# --- Section 4: Coverage Feedback (Textual) ---
 if 'feedback' in st.session_state:
-    st.subheader("4️⃣ Coverage Feedback")
+    st.subheader("4️⃣ Coverage Feedback (Textual)")
     st.write("Review gaps in your risk analysis with examples to inspire additions to Mural.")
     st.markdown("### Coverage Feedback:")
     st.markdown(st.session_state['feedback'])
-    st.info("Add inspired risks to Mural based on these examples, then re-pull Mural data for mitigation analysis.")
+    st.info("Add inspired risks to Mural based on these examples, then re-pull Mural data for further analysis.")
 
-# --- Section 5: Mitigation Strategies ---
-st.subheader("5️⃣ Mitigation Strategies")
-st.write("Review human-centric mitigation strategies for each finalized Mural risk.")
-if st.button("🔧 Generate Mitigation Strategies"):
-    with st.spinner("Generating mitigation strategies..."):
-        if user_input.strip():
-            try:
-                human_risks = [r.strip() for r in user_input.split('\n') if r.strip()]
-                domain = df['domain'].iloc[0] if 'domain' in df.columns else "AI deployment"
-                
-                mitigation_strategies = []
-                for risk in human_risks:
-                    prompt = f"""
-                    You are an AI risk mitigation expert for {domain}, specializing in human-centric design. For the following finalized risk:
-                    - {risk}
-
-                    Provide 1-2 human-centric mitigation strategies that prioritize user needs, ethical considerations, and practical implementation. Include a brief example for each strategy to illustrate how it can be applied.
-
-                    Format the response as:
-                    - Strategy 1: [description] (Example: [example])
-                    - Strategy 2: [description] (Example: [example])
-                    """
-                    try:
-                        response = openai_client.chat.completions.create(
-                            model="gpt-4o",
-                            messages=[
-                                {"role": "system", "content": "You are a helpful AI risk mitigation advisor specializing in human-centric design."},
-                                {"role": "user", "content": prompt}
-                            ]
-                        )
-                        mitigation = response.choices[0].message.content
-                        mitigation_strategies.append({"risk": risk, "mitigation": mitigation})
-                    except Exception as e:
-                        st.error(f"OpenAI API error for risk '{risk}': {str(e)}")
-                        mitigation_strategies.append({"risk": risk, "mitigation": "Error generating mitigation strategies."})
-
-                st.session_state['mitigation_strategies'] = mitigation_strategies
-            except Exception as e:
-                st.error(f"Error processing mitigation strategies: {str(e)}")
-        else:
-            st.warning("Please enter or pull some risks first.")
-
-# Display Mitigation Strategies
-if 'mitigation_strategies' in st.session_state:
-    st.markdown("### Mitigation Strategies for Finalized Risks:")
-    for idx, item in enumerate(st.session_state['mitigation_strategies']):
-        st.markdown(f"**Risk {idx + 1}:** {item['risk']}")
-        st.markdown(f"**Mitigation Strategies:**")
-        st.markdown(item['mitigation'])
-        st.markdown("---")
-
-# --- Section 6: Brainstorming Assistant ---
-st.subheader("6️⃣ Brainstorm Risks")
+# --- Section 5: Brainstorm Risks ---
+st.subheader("5️⃣ Brainstorm Risks")
 st.write("Generate creative risk suggestions to broaden your analysis.")
 num_brainstorm_risks = st.slider("Number of Suggestions", 1, 5, 5)
 stakeholder_options = sorted(df['stakeholder'].dropna().unique())
@@ -689,3 +623,39 @@ if 'brainstorm_suggestions' in st.session_state:
                         st.session_state[f"show_disagree_{suggestion_key}"] = False
                     else:
                         st.error("Please provide a reason.")
+
+# --- Section 6: Mitigation Strategies ---
+st.subheader("6️⃣ Mitigation Strategies")
+st.write("Review human-centric mitigation strategies for each finalized Mural risk.")
+if st.button("🔧 Generate Mitigation Strategies"):
+    with st.spinner("Generating mitigation strategies..."):
+        if user_input.strip():
+            try:
+                human_risks = [r.strip() for r in user_input.split('\n') if r.strip()]
+                domain = df['domain'].iloc[0] if 'domain' in df.columns else "AI deployment"
+                
+                mitigation_strategies = []
+                for risk in human_risks:
+                    prompt = f"""
+                    You are an AI risk mitigation expert for {domain}, specializing in human-centric design. For the following finalized risk:
+                    - {risk}
+
+                    Provide 1-2 human-centric mitigation strategies that prioritize user needs, ethical considerations, and practical implementation. Include a brief example for each strategy to illustrate how it can be applied.
+
+                    Format the response as:
+                    - Strategy 1: [description] (Example: [example])
+                    - Strategy 2: [description] (Example: [example])
+                    """
+                    try:
+                        response = openai_client.chat.completions.create(
+                            model="gpt-4o",
+                            messages=[
+                                {"role": "system", "content": "You are a helpful AI risk mitigation advisor specializing in human-centric design."},
+                                {"role": "user", "content": prompt}
+                            ]
+                        )
+                        mitigation = response.choices[0].message.content
+                        mitigation_strategies.append({"risk": risk, "mitigation": mitigation})
+                    except Exception as e:
+                        st.error(f"OpenAI API error for risk '{risk}': {str(e)}")
+                        mitigation_strategies.append({"risk": risk, "mitigation": "Error generating mitigation strategies."
