@@ -309,14 +309,16 @@ with st.sidebar:
                 st.write("Debug: Status Code:", mural_data.status_code)
                 st.write("Debug: Full API Response:", mural_data.json())
                 if mural_data.status_code == 200:
-                    # Handle both 'value' and 'data' keys
                     widgets = mural_data.json().get("value", mural_data.json().get("data", []))
                     st.write("Debug: Total Widgets:", len(widgets))
-                    sticky_widgets = [w for w in widgets if w.get('type') == 'sticky_note']
+                    # Log all widget types
+                    widget_types = [w.get('type', 'unknown') for w in widgets]
+                    st.write("Debug: Widget Types:", widget_types)
+                    # Flexible matching for sticky note type
+                    sticky_widgets = [w for w in widgets if w.get('type', '').replace(' ', '_').lower() == 'sticky_note']
                     st.write("Debug: Sticky Notes:", sticky_widgets)
                     stickies = []
                     for w in sticky_widgets:
-                        # Try htmlText first, then text
                         raw_text = w.get('htmlText') or w.get('text') or ''
                         st.write("Debug: Raw Sticky Text:", raw_text)
                         if raw_text:
