@@ -659,3 +659,4 @@ if st.button("🔧 Generate Mitigation Strategies"):
                     except Exception as e:
                         st.error(f"OpenAI API error for risk '{risk}': {str(e)}")
                         mitigation_strategies.append({"risk": risk, "mitigation": "Error generating mitigation strategies."})
+
