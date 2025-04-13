@@ -20,6 +20,9 @@ st.title("🤖 AI-Powered Risk Analysis and Brainstorming for Mural")
 # Progress message
 st.text("Starting app...")
 
+# Debug: Session state keys
+st.write("Debug: All session state keys:", list(st.session_state.keys()))
+
 # Load secrets
 try:
     OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
@@ -110,6 +113,8 @@ if auth_code and not st.session_state.access_token:
         st.session_state.refresh_token = token_data.get("refresh_token")
         st.session_state.token_expires_in = token_data.get("expires_in", 900)
         st.session_state.token_timestamp = pd.Timestamp.now().timestamp()
+        st.write("Debug: Access Token:", st.session_state.access_token)  # Debug
+        st.write("Debug: Token Scopes:", token_data.get('scope', 'Not set'))  # Debug
         st.query_params.clear()
         st.success("Authenticated with Mural!")
         st.rerun()
@@ -179,12 +184,18 @@ with st.sidebar:
                 session = requests.Session()
                 retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
                 session.mount('https://', HTTPAdapter(max_retries=retries))
-                mural_data = session.get(url, headers=headers)
+                mural_data = session.get(url, headers=headers, timeout=10)
+                st.write("Debug: Status Code:", mural_data.status_code)
+                st.write("Debug: Full API Response:", mural_data.json())
                 if mural_data.status_code == 200:
                     widgets = mural_data.json().get("data", [])
+                    st.write("Debug: Total Widgets:", len(widgets))
+                    st.write("Debug: Sticky Notes:", [w for w in widgets if w.get('type') == 'sticky_note'])
                     stickies = [w.get('text', '') for w in widgets if w.get('type') == 'sticky_note' and w.get('text')]
+                    st.write("Debug: Extracted Stickies:", stickies)
                     st.session_state['mural_notes'] = stickies
-                    st.success(f"Pulled {len(stickies)} sticky notes from Mural.")
+                    st.write("Debug: mural_notes in session state:", st.session_state['mural_notes'])
+                    st.success(f"Pulled {len(sties)} sticky notes from Mural.")
                 else:
                     st.error(f"Failed to pull from Mural: {mural_data.status_code} - {mural_data.text}")
                     if mural_data.status_code == 401:
@@ -193,7 +204,7 @@ with st.sidebar:
                         auth_url = get_authorization_url()
                         st.markdown(f"[Re-authorize the app]({auth_url}).")
                     elif mural_data.status_code == 403:
-                        st.warning("Access denied. Ensure your account is a collaborator on the mural: https://app.mural.co/t/aiimpacttesting2642/m/aiimpacttesting2642/1740767964926.")
+                        st.warning("Access denied. Ensure your account is a collaborator on the mural: https://app.mural.co/t/aiimpacttesting2642/m/aiimpacttesting2642/1744527223386.")
                     elif mural_data.status_code == 404:
                         st.warning("Mural not found. Confirm MURAL_BOARD_ID is '1744527223386'.")
                     st.write("Raw API response:", mural_data.json())
@@ -204,6 +215,8 @@ with st.sidebar:
 st.subheader("1️⃣ Input Risks")
 default_notes = st.session_state.get('mural_notes', [])
 default_text = "\n".join(default_notes) if default_notes else ""
+st.write("Debug: default_notes:", default_notes)
+st.write("Debug: default_text:", default_text)
 user_input = st.text_area("Paste or edit your risks below:", value=default_text, height=200)
 
 # --- Section 2: Generate Feedback ---
@@ -292,6 +305,7 @@ if 'missed_risks' in st.session_state:
                     retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
                     session.mount('https://', HTTPAdapter(max_retries=retries))
                     res = session.post(url, headers=headers, json=payload)
+                    st.write("Debug: Post response:", res.status_code, res.json())
                     if res.status_code in [200, 201]:
                         st.success(f"Posted: {risk['risk_description']}")
                         st.session_state.posted_count += 1
@@ -340,7 +354,7 @@ if st.button("💡 Suggest AI-Generated Risks"):
 
         try:
             result = openai_client.chat.completions.create(
-                model="gpt-4o",
+                model="gmt-4o",
                 messages=[
                     {"role": "system", "content": "You are an AI brainstorming assistant for strategic risk workshops."},
                     {"role": "user", "content": prompt}
