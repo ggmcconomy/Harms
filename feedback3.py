@@ -535,7 +535,7 @@ if st.button("💡 Generate Suggestions"):
             )
             brainstorm_output = result.choices[0].message.content
             # Parse bullet points into a list
-            brainstorm_suggestions = [s.strip() for s in brainstorm_output.split('\n') if s.strip().startswith('- ')]
+            brainstorm_suggestions = [931s.strip() for s in brainstorm_output.split('\n') if s.strip().startswith('- ')]
             brainstorm_suggestions = [s[2:].strip() for s in brainstorm_suggestions]
             st.session_state['brainstorm_suggestions'] = brainstorm_suggestions[:num_brainstorm_risks]
         except Exception as e:
