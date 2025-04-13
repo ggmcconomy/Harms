@@ -210,7 +210,7 @@ with st.sidebar:
                     elif mural_data.status_code == 403:
                         st.warning("Access denied. Ensure your account is a collaborator.")
                     elif mural_data.status_code == 404:
-                        st.warning("Mural not found. Confirm MURAL_BOARD_ID is '1744527223386'.")
+                        st.warning("Mural not found. Please check MURAL_BOARD_ID.")
                     st.write("Raw API response:", mural_data.json())
             except Exception as e:
                 st.error(f"Error connecting to Mural: {str(e)}")
