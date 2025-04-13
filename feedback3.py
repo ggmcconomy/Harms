@@ -172,8 +172,8 @@ def create_mural(auth_token, workspace_id, room_id=1740767942646471, title="Test
         response = session.post(url, headers=headers, json=payload, timeout=10)
         st.write("Debug: Create Mural Status Code:", response.status_code)
         st.write("Debug: Create Mural Response:", response.text)
-        if response.status_code == 200:
-            mural_id = response.json().get("id")
+        if response.status_code in [200, 201]:
+            mural_id = response.json().get("value", {}).get("id")
             st.write("Debug: Created Mural ID:", mural_id)
             return mural_id
         else:
@@ -435,10 +435,10 @@ if 'missed_risks' in st.session_state:
                     'Content-Type': 'application/json',
                     'Accept': 'application/json'
                 }
-                mural_id = custom_mural_id or st.session_state.get('temp_mural_id', MURAL_BOARD_ID)
-                # Try /stickynotes endpoint
+                # Prioritize temp_mural_id for posting
+                mural_id = st.session_state.get('temp_mural_id', custom_mural_id or MURAL_BOARD_ID)
                 st.write("Debug: Trying POST with mural ID:", mural_id)
-                url = f"https://app.mural.co/api/public/v1/murals/{mural_id}/stickynotes"
+                url = f"https://app.mural.co/api/public/v1/murals/{mural_id}/stickynote"
                 try:
                     session = requests.Session()
                     retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
@@ -446,23 +446,23 @@ if 'missed_risks' in st.session_state:
                     st.write("Debug: POST Headers:", headers)
                     st.write("Debug: POST Payload:", payload)
                     res = session.post(url, headers=headers, json=payload)
-                    st.write("Debug: Post response (/stickynotes):", res.status_code, res.json())
+                    st.write("Debug: Post response (/stickynote):", res.status_code, res.json())
                     if res.status_code in [200, 201]:
                         st.success(f"Posted: {risk['risk_description'][:50]}...")
                         st.session_state.posted_count += 1
                     else:
-                        st.error(f"Error posting to Mural (/stickynotes): {res.status_code} - {res.text}")
+                        st.error(f"Error posting to Mural (/stickynote): {res.status_code} - {res.text}")
                         # Try numeric ID
                         numeric_id = normalize_mural_id(mural_id)
                         st.write("Debug: Trying POST with numeric mural ID:", numeric_id)
-                        url = f"https://app.mural.co/api/public/v1/murals/{numeric_id}/stickynotes"
+                        url = f"https://app.mural.co/api/public/v1/murals/{numeric_id}/stickynote"
                         res = session.post(url, headers=headers, json=payload)
-                        st.write("Debug: Post response (numeric ID, /stickynotes):", res.status_code, res.json())
+                        st.write("Debug: Post response (numeric ID, /stickynote):", res.status_code, res.json())
                         if res.status_code in [200, 201]:
                             st.success(f"Posted: {risk['risk_description'][:50]}...")
                             st.session_state.posted_count += 1
                         else:
-                            st.error(f"Error posting to Mural (numeric ID, /stickynotes): {res.status_code} - {res.text}")
+                            st.error(f"Error posting to Mural (numeric ID, /stickynote): {res.status_code} - {res.text}")
                             if res.status_code == 401:
                                 st.warning("OAuth token invalid. Please re-authenticate.")
                                 st.session_state.access_token = None
