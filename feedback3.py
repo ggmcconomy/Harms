@@ -370,76 +370,83 @@ num_missed_risks = st.slider("Number of Missed Risks to Show", 1, 5, 5)
 if st.button("🔍 Generate Feedback"):
     with st.spinner("Analyzing risks..."):
         if user_input.strip():
-            human_risks = [r.strip() for r in user_input.split('\n') if r.strip()]
-            human_embeddings = np.array(embedder.encode(human_risks))
-            distances, indices = index.search(human_embeddings, 5)
-            similar_risks = [df.iloc[idx].to_dict('records') for idx in indices]
-
-            covered_clusters = {r['cluster'] for group in similar_risks for r in group}
-            covered_types = {r['risk_type'] for group in similar_risks for r in group}
-            covered_stakeholders = {r['stakeholder'] for group in similar_risks for r in group}
-
-            missed_clusters = sorted(list(set(df['cluster']) - covered_clusters))
-            missed_types = sorted(list(set(df['risk_type']) - covered_types))
-            missed_stakeholders = sorted(list(set(df['stakeholder']) - covered_stakeholders))
-
-            top_missed = df[(df['severity'] >= severity_threshold) & (~df['cluster'].isin(covered_clusters))]
-            top_missed = top_missed.sort_values(by='combined_score', ascending=False).head(num_missed_risks)
-
-            prompt = f"""
-            You are an AI risk analysis expert. The user provided these risks: {', '.join(human_risks)}
-            Identify what they missed based on risk database themes, risk types, stakeholders, and high-severity risks:
-
-            Missed Clusters: {missed_clusters}
-            Missed Risk Types: {missed_types}
-            Missed Stakeholders: {missed_stakeholders}
-
-            Top high-severity missed examples:
-            {chr(10).join('- ' + r for r in top_missed['risk_description'].tolist())}
-            Provide detailed, constructive feedback on where coverage is weak.
-            """
-
             try:
-                response = openai_client.chat.completions.create(
-                    model="gpt-4o",
-                    messages=[
-                        {"role": "system", "content": "You are a helpful AI risk advisor."},
-                        {"role": "user", "content": prompt}
-                    ]
-                )
-                feedback = response.choices[0].message.content
-            except Exception as e:
-                st.error(f"OpenAI API error: {str(e)}")
-                feedback = None
+                human_risks = [r.strip() for r in user_input.split('\n') if r.strip()]
+                human_embeddings = np.array(embedder.encode(human_risks))
+                distances, indices = index.search(human_embeddings, 5)
+                similar_risks = [df.iloc[idx].to_dict('records') for idx in indices]
 
-            if feedback:
+                covered_clusters = {r['cluster'] for group in similar_risks for r in group}
+                covered_types = {r['risk_type'] for group in similar_risks for r in group}
+                covered_stakeholders = {r['stakeholder'] for group in similar_risks for r in group}
+
+                missed_clusters = sorted(list(set(df['cluster']) - covered_clusters))
+                missed_types = sorted(list(set(df['risk_type']) - covered_types))
+                missed_stakeholders = sorted(list(set(df['stakeholder']) - covered_stakeholders))
+
+                top_missed = df[(df['severity'] >= severity_threshold) & (~df['cluster'].isin(covered_clusters))]
+                top_missed = top_missed.sort_values(by='combined_score', ascending=False).head(num_missed_risks)
+
+                prompt = f"""
+                You are an AI risk analysis expert. The user provided these risks: {', '.join(human_risks)}
+                Identify what they missed based on risk database themes, risk types, stakeholders, and high-severity risks:
+
+                Missed Clusters: {missed_clusters}
+                Missed Risk Types: {missed_types}
+                Missed Stakeholders: {missed_stakeholders}
+
+                Top high-severity missed examples:
+                {chr(10).join('- ' + r for r in top_missed['risk_description'].tolist())}
+                Provide detailed, constructive feedback on where coverage is weak.
+                """
+
                 try:
-                    # Prepare data for coverage charts
-                    covered_stakeholder_list = [r['stakeholder'] for group in similar_risks for r in group]
-                    covered_type_list = [r['risk_type'] for group in similar_risks for r in group]
-                    covered_cluster_list = [r['cluster'] for group in similar_risks for r in group]
-                    missed_stakeholder_list = top_missed['stakeholder'].tolist()
-                    missed_type_list = top_missed['risk_type'].tolist()
-                    missed_cluster_list = top_missed['cluster'].tolist()
-
-                    create_coverage_charts(
-                        covered_stakeholder_list, missed_stakeholder_list,
-                        covered_type_list, missed_type_list,
-                        covered_cluster_list, missed_cluster_list
+                    response = openai_client.chat.completions.create(
+                        model="gpt-4o",
+                        messages=[
+                            {"role": "system", "content": "You are a helpful AI risk advisor."},
+                            {"role": "user", "content": prompt}
+                        ]
                     )
+                    feedback = response.choices[0].message.content
+                except Exception as e:
+                    st.error(f"OpenAI API error: {str(e)}")
+                    feedback = None
+
+                if feedback:
+                    # Prepare data for coverage charts
+                    covered_stakeholders = [r['stakeholder'] for group in similar_risks for r in group]
+                    covered_types = [r['risk_type'] for group in similar_risks for r in group]
+                    covered_clusters = [r['cluster'] for group in similar_risks for r in group]
+                    missed_stakeholders = top_missed['stakeholder'].tolist()
+                    missed_types = top_missed['risk_type'].tolist()
+                    missed_clusters = top_missed['cluster'].tolist()
+
+                    # Validate chart data
+                    if not (covered_stakeholders or missed_stakeholders or covered_types or missed_types or covered_clusters or missed_clusters):
+                        st.warning("No data available for coverage charts.")
+                    else:
+                        try:
+                            create_coverage_charts(
+                                covered_stakeholders, missed_stakeholders,
+                                covered_types, missed_types,
+                                covered_clusters, missed_clusters
+                            )
+                        except Exception as e:
+                            st.error(f"Error generating coverage charts: {str(e)}")
 
                     st.session_state['missed_risks'] = top_missed.to_dict(orient='records')
                     st.session_state['feedback'] = feedback
                     st.session_state['coverage_data'] = {
-                        'covered_stakeholders': covered_stakeholder_list,
-                        'missed_stakeholders': missed_stakeholder_list,
-                        'covered_types': covered_type_list,
-                        'missed_types': missed_type_list,
-                        'covered_clusters': covered_cluster_list,
-                        'missed_clusters': missed_cluster_list
+                        'covered_stakeholders': covered_stakeholders,
+                        'missed_stakeholders': missed_stakeholders,
+                        'covered_types': covered_types,
+                        'missed_types': missed_types,
+                        'covered_clusters': covered_clusters,
+                        'missed_clusters': missed_clusters
                     }
-                except Exception as e:
-                    st.error(f"Error processing feedback or charts: {str(e)}")
+            except Exception as e:
+                st.error(f"Error processing risks: {str(e)}")
         else:
             st.warning("Please enter or pull some risks first.")
 
@@ -535,7 +542,7 @@ if st.button("💡 Generate Suggestions"):
             )
             brainstorm_output = result.choices[0].message.content
             # Parse bullet points into a list
-            brainstorm_suggestions = [931s.strip() for s in brainstorm_output.split('\n') if s.strip().startswith('- ')]
+            brainstorm_suggestions = [s.strip() for s in brainstorm_output.split('\n') if s.strip().startswith('- ')]
             brainstorm_suggestions = [s[2:].strip() for s in brainstorm_suggestions]
             st.session_state['brainstorm_suggestions'] = brainstorm_suggestions[:num_brainstorm_risks]
         except Exception as e:
