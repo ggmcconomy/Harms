@@ -439,28 +439,52 @@ if st.button("🔍 Generate Coverage Feedback"):
                 underrepresented_subtypes = [s for s in df['risk_subtype'].unique() if human_subtypes.count(s) < df['risk_subtype'].value_counts()[s] * 0.1]
                 underrepresented_stakeholders = [s for s in df['stakeholder'].unique() if human_stakeholders.count(s) < df['stakeholder'].value_counts()[s] * 0.1]
 
-                # Prepare coverage feedback prompt using CSV as RAG context
+                # Prepare limited context from CSV for missed and underrepresented areas
+                context_examples = []
+                for category, items in [
+                    ("Missed Risk Types", missed_types),
+                    ("Missed Risk Subtypes", missed_subtypes),
+                    ("Missed Stakeholders", missed_stakeholders),
+                    ("Underrepresented Risk Types", underrepresented_types),
+                    ("Underrepresented Risk Subtypes", underrepresented_subtypes),
+                    ("Underrepresented Stakeholders", underrepresented_stakeholders)
+                ]:
+                    if items:
+                        # Select up to 3 examples for each category
+                        for item in items[:3]:
+                            if category.endswith("Types"):
+                                example_rows = df[df['risk_type'] == item].head(1)
+                            elif category.endswith("Subtypes"):
+                                example_rows = df[df['risk_subtype'] == item].head(1)
+                            elif category.endswith("Stakeholders"):
+                                example_rows = df[df['stakeholder'] == item].head(1)
+                            if not example_rows.empty:
+                                example = example_rows.iloc[0]
+                                context_examples.append(f"{category}: {item} - Example: {example['risk_description']} (Type: {example['risk_type']}, Subtype: {example['risk_subtype']}, Stakeholder: {example['stakeholder']})")
+
+                # Join the examples into a string
+                context_str = "\n".join(context_examples)
+
+                # Prepare coverage feedback prompt with limited context
                 domain = df['domain'].iloc[0] if 'domain' in df.columns else "AI deployment"
-                csv_context = df[['risk_description', 'risk_type', 'risk_subtype', 'stakeholder']].to_string(index=False)
                 prompt = f"""
                 You are an AI risk analysis expert for {domain}. The user has identified these finalized risks from Mural:
                 {chr(10).join(f'- {r}' for r in human_risks)}
 
-                Using the risk database below as context, analyze the coverage of these risks and provide:
-                ```
-                {csv_context}
-                ```
-                1. **Gaps in Coverage**: Identify unconsidered areas with specific examples:
+                Using the following examples from the risk database, analyze the coverage of these risks and provide:
+                {context_str}
+
+                1. **Gaps in Coverage**: Identify unconsidered areas with specific examples from the database:
                    - Unconsidered Clusters: {missed_clusters}
                    - Unconsidered Risk Types: {missed_types}
                    - Unconsidered Risk Subtypes: {missed_subtypes}
                    - Unconsidered Stakeholders: {missed_stakeholders}
-                2. **Underrepresented Areas**: Highlight insufficiently considered areas with examples:
+                2. **Underrepresented Areas**: Highlight insufficiently considered areas with examples from the database:
                    - Risk Types: {underrepresented_types}
                    - Risk Subtypes: {underrepresented_subtypes}
                    - Stakeholders: {underrepresented_stakeholders}
 
-                For each gap or underrepresented area, provide a specific example of a risk that could be considered, generated or adapted from the risk database. Explain why these gaps matter and how addressing them improves risk analysis. Encourage adding inspired risks to Mural and re-pulling data for mitigation analysis. Do not include a list of suggested risks to add; focus only on examples within the feedback.
+                For each gap or underrepresented area, reference the provided examples to illustrate the missing coverage. Explain why these gaps matter and how addressing them improves risk analysis. Encourage adding inspired risks to Mural and re-pulling data for mitigation analysis.
                 """
 
                 try:
@@ -478,14 +502,14 @@ if st.button("🔍 Generate Coverage Feedback"):
 
                 if feedback:
                     # Prepare data for coverage charts
-                    covered_stakeholders_list = human_stakeholders
-                    covered_types_list = human_risk_types
-                    covered_subtypes_list = human_subtypes
-                    covered_clusters_list = [r['cluster'] for r in similar_risks]
-                    missed_stakeholders_list = missed_stakeholders
-                    missed_types_list = missed_types
-                    missed_subtypes_list = missed_subtypes
-                    missed_clusters_list = missed_clusters
+                    covered_stakeholders_list = list(covered_stakeholders)
+                    covered_types_list = list(covered_types)
+                    covered_subtypes_list = list(covered_subtypes)
+                    covered_clusters_list = list(covered_clusters)
+                    missed_stakeholders_list = list(missed_stakeholders)
+                    missed_types_list = list(missed_types)
+                    missed_subtypes_list = list(missed_subtypes)
+                    missed_clusters_list = list(missed_clusters)
 
                     # Generate coverage charts with user-selected top_n_subtypes
                     create_coverage_charts(
