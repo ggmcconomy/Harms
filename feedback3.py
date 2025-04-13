@@ -660,3 +660,18 @@ if st.button("🔧 Generate Mitigation Strategies"):
                         st.error(f"OpenAI API error for risk '{risk}': {str(e)}")
                         mitigation_strategies.append({"risk": risk, "mitigation": "Error generating mitigation strategies."})
 
+                st.session_state['mitigation_strategies'] = mitigation_strategies
+            except Exception as e:
+                st.error(f"Error processing mitigation strategies: {str(e)}")
+        else:
+            st.warning("Please enter or pull some risks first.")
+
+# Display Mitigation Strategies
+if 'mitigation_strategies' in st.session_state:
+    st.markdown("### Mitigation Strategies for Finalized Risks:")
+    for idx, item in enumerate(st.session_state['mitigation_strategies']):
+        st.markdown(f"**Risk {idx + 1}:** {item['risk']}")
+        st.markdown(f"**Mitigation Strategies:**")
+        st.markdown(item['mitigation'])
+        st.markdown("---")
+
