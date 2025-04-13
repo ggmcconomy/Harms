@@ -554,50 +554,60 @@ with col2:
 
 if st.button("💡 Generate Risk Suggestions", key="generate_risk_suggestions"):
     with st.spinner("Generating ideas..."):
-        filt = df.copy()
-        if stakeholder != "Any":
-            filt = filt[filt['stakeholder'] == stakeholder]
-        if risk_type != "Any":
-            filt = filt[filt['risk_type'] == risk_type]
-        top_suggestions = filt.sort_values(by='combined_score', ascending=False).head(num_brainstorm_risks)
-
-        suggestions = "\n".join(f"- {r['risk_description']} (Type: {r['risk_type']}, Subtype: {r['risk_subtype']}, Stakeholder: {r['stakeholder']})" for r in top_suggestions.to_dict('records'))
-
-        # Ensure domain is defined
-        domain = df['domain'].iloc[0] if 'domain' in df.columns else "AI deployment"
-
-        prompt = f"""
-        You are a creative AI risk analysis expert for {domain}. Based on these high-priority risks:
-        {suggestions}
-
-        Generate {num_brainstorm_risks} new risk suggestions to broaden the risk analysis. Focus on diverse, overlooked risks that complement the existing ones. For each suggestion, include:
-        - A concise risk description
-        - Risk Type
-        - Risk Subtype
-        - Stakeholder
-        - Why it matters
-
-        Format each suggestion as:
-        - Risk: [description] (Type: [type], Subtype: [subtype], Stakeholder: [stakeholder], Why it matters: [reason])
-        """
-
         try:
-            result = openai_client.chat.completions.create(
+            filt = df.copy()
+            if stakeholder != "Any":
+                filt = filt[filt['stakeholder'] == stakeholder]
+            if risk_type != "Any":
+                filt = filt[filt['risk_type'] == risk_type]
+            top_suggestions = filt.sort_values(by='combined_score', ascending=False).head(num_brainstorm_risks)
+
+            suggestions = "\n".join(f"- {r['risk_description']} (Type: {r['risk_type']}, Subtype: {r['risk_subtype']}, Stakeholder: {r['stakeholder']})" for r in top_suggestions.to_dict('records'))
+
+            # Ensure domain is defined
+            domain = df['domain'].iloc[0] if 'domain' in df.columns else "AI deployment"
+
+            prompt = f"""
+            You are a creative AI risk analysis expert for {domain}. Based on these high-priority risks:
+            {suggestions}
+
+            Generate {num_brainstorm_risks} new risk suggestions to broaden the risk analysis. Focus on diverse, overlooked risks that complement the existing ones. For each suggestion, include:
+            - A concise risk description
+            - Risk Type
+            - Risk Subtype
+            - Stakeholder
+            - Why it matters
+
+            Format each suggestion as:
+            - Risk: [description] (Type: [type], Subtype: [subtype], Stakeholder: [stakeholder], Why it matters: [reason])
+            """
+
+            response = openai_client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
                     {"role": "system", "content": "You are a creative AI risk brainstorming assistant."},
                     {"role": "user", "content": prompt}
                 ]
             )
-            brainstorm_output = result.choices[0].message.content
+            brainstorm_output = response.choices[0].message.content
+
+            # Debug: Display raw output to check format
+            st.write("Raw API Response:", brainstorm_output)
+
+            # Extract suggestions
             brainstorm_suggestions = [s.strip() for s in brainstorm_output.split('\n') if s.strip().startswith('- Risk:')]
             brainstorm_suggestions = [s[2:].strip() for s in brainstorm_suggestions]
-            st.session_state['brainstorm_suggestions'] = brainstorm_suggestions[:num_brainstorm_risks]
+
+            if not brainstorm_suggestions:
+                st.warning("No suggestions were generated. The API response might not match the expected format.")
+            else:
+                st.session_state['brainstorm_suggestions'] = brainstorm_suggestions[:num_brainstorm_risks]
+
         except Exception as e:
-            st.error(f"OpenAI API error: {str(e)}")
+            st.error(f"Error generating risk suggestions: {str(e)}")
 
 # Display Brainstorming Suggestions with Feedback
-if 'brainstorm_suggestions' in st.session_state:
+if 'brainstorm_suggestions' in st.session_state and st.session_state['brainstorm_suggestions']:
     st.markdown("### Brainstormed Risk Suggestions:")
     st.write("Vote on creative risk ideas to add to Mural, or disagree with a reason.")
     
@@ -626,6 +636,8 @@ if 'brainstorm_suggestions' in st.session_state:
                         st.session_state[f"show_disagree_{suggestion_key}"] = False
                     else:
                         st.error("Please provide a reason.")
+else:
+    st.info("No suggestions available. Click 'Generate Risk Suggestions' to create new ideas.")
 
 # --- Section 6: Mitigation Strategies ---
 st.subheader("6️⃣ Mitigation Strategies")
