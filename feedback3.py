@@ -421,17 +421,16 @@ if st.button("🔍 Generate Coverage Feedback"):
                 similar_risks = [df.iloc[idx].to_dict() for idx in indices.flatten()]
 
                 # Analyze coverage
-                covered_clusters = {r['cluster'] for r in similar_risks}
                 covered_types = {r['risk_type'] for r in similar_risks}
                 covered_subtypes = {r['risk_subtype'] for r in similar_risks}
                 covered_stakeholders = {r['stakeholder'] for r in similar_risks}
 
-                missed_clusters = sorted(list(set(df['cluster']) - covered_clusters))
+                # Find missed and underrepresented areas
                 missed_types = sorted(list(set(df['risk_type']) - covered_types))
                 missed_subtypes = sorted(list(set(df['risk_subtype']) - covered_subtypes))
                 missed_stakeholders = sorted(list(set(df['stakeholder']) - covered_stakeholders))
 
-                # Identify underrepresented areas
+                # Identify underrepresented areas (e.g., if fewer than 10% of expected coverage)
                 human_risk_types = [r['risk_type'] for r in similar_risks]
                 human_subtypes = [r['risk_subtype'] for r in similar_risks]
                 human_stakeholders = [r['stakeholder'] for r in similar_risks]
@@ -452,11 +451,11 @@ if st.button("🔍 Generate Coverage Feedback"):
                     if items:
                         # Select up to 3 examples for each category
                         for item in items[:3]:
-                            if category.endswith("Types"):
+                            if "Types" in category:
                                 example_rows = df[df['risk_type'] == item].head(1)
-                            elif category.endswith("Subtypes"):
+                            elif "Subtypes" in category:
                                 example_rows = df[df['risk_subtype'] == item].head(1)
-                            elif category.endswith("Stakeholders"):
+                            elif "Stakeholders" in category:
                                 example_rows = df[df['stakeholder'] == item].head(1)
                             if not example_rows.empty:
                                 example = example_rows.iloc[0]
@@ -468,30 +467,29 @@ if st.button("🔍 Generate Coverage Feedback"):
                 # Prepare coverage feedback prompt with limited context
                 domain = df['domain'].iloc[0] if 'domain' in df.columns else "AI deployment"
                 prompt = f"""
-                You are an AI risk analysis expert for {domain}. The user has identified these finalized risks from Mural:
+                You are an AI risk analysis expert for {domain}, focusing solely on harms identification. The user has identified these finalized risks from Mural:
                 {chr(10).join(f'- {r}' for r in human_risks)}
 
-                Using the following examples from the risk database, analyze the coverage of these risks and provide:
+                Based on the user's risks and the following examples from the risk database:
                 {context_str}
 
-                1. **Gaps in Coverage**: Identify unconsidered areas with specific examples from the database:
-                   - Unconsidered Clusters: {missed_clusters}
-                   - Unconsidered Risk Types: {missed_types}
-                   - Unconsidered Risk Subtypes: {missed_subtypes}
-                   - Unconsidered Stakeholders: {missed_stakeholders}
-                2. **Underrepresented Areas**: Highlight insufficiently considered areas with examples from the database:
-                   - Risk Types: {underrepresented_types}
-                   - Risk Subtypes: {underrepresented_subtypes}
-                   - Stakeholders: {underrepresented_stakeholders}
+                Provide feedback on the coverage of risk types, subtypes, and stakeholders in the user's harms analysis:
 
-                For each gap or underrepresented area, reference the provided examples to illustrate the missing coverage. Explain why these gaps matter and how addressing them improves risk analysis. Encourage adding inspired risks to Mural and re-pulling data for mitigation analysis.
+                1. **Covered Areas**: Briefly summarize the risk types, subtypes, and stakeholders that are addressed in the user's risks, based on their input.
+                2. **Gaps in Coverage**: Identify risk types, subtypes, or stakeholders that are overlooked. For each:
+                   - If completely missing, state that the category is not represented in the user's risks and explain why this gap matters for a comprehensive harms analysis.
+                   - If insufficiently developed, note that the category is mentioned but lacks depth or breadth (e.g., missing key aspects or examples), and explain how this limits the analysis.
+                   - Use the provided examples to illustrate what comprehensive coverage looks like.
+                3. **Suggestions for Improvement**: Offer actionable advice on how to address these gaps by adding new risks or expanding existing ones in Mural, focusing on the types, subtypes, and stakeholders rather than specific risk instances.
+
+                Ensure the feedback reflects on what the user has covered while emphasizing the importance of addressing all relevant risk categories for a thorough harms analysis. Keep the tone constructive and tie suggestions to the examples provided.
                 """
 
                 try:
                     response = openai_client.chat.completions.create(
                         model="gpt-4o",
                         messages=[
-                            {"role": "system", "content": "You are a helpful AI risk advisor."},
+                            {"role": "system", "content": "You are a helpful AI risk advisor specializing in harms identification."},
                             {"role": "user", "content": prompt}
                         ]
                     )
@@ -505,18 +503,16 @@ if st.button("🔍 Generate Coverage Feedback"):
                     covered_stakeholders_list = list(covered_stakeholders)
                     covered_types_list = list(covered_types)
                     covered_subtypes_list = list(covered_subtypes)
-                    covered_clusters_list = list(covered_clusters)
                     missed_stakeholders_list = list(missed_stakeholders)
                     missed_types_list = list(missed_types)
                     missed_subtypes_list = list(missed_subtypes)
-                    missed_clusters_list = list(missed_clusters)
 
                     # Generate coverage charts with user-selected top_n_subtypes
                     create_coverage_charts(
                         covered_stakeholders_list, missed_stakeholders_list,
                         covered_types_list, missed_types_list,
                         covered_subtypes_list, missed_subtypes_list,
-                        covered_clusters_list, missed_clusters_list,
+                        [], [],  # Clusters not used in this version
                         cluster_labels,
                         top_n_subtypes=top_n_subtypes
                     )
@@ -528,9 +524,7 @@ if st.button("🔍 Generate Coverage Feedback"):
                         'covered_types': covered_types_list,
                         'missed_types': missed_types_list,
                         'covered_subtypes': covered_subtypes_list,
-                        'missed_subtypes': missed_subtypes_list,
-                        'covered_clusters': covered_clusters_list,
-                        'missed_clusters': missed_clusters_list
+                        'missed_subtypes': missed_subtypes_list
                     }
             except Exception as e:
                 st.error(f"Error processing risks: {str(e)}")
@@ -541,7 +535,7 @@ if st.button("🔍 Generate Coverage Feedback"):
 if 'coverage_data' in st.session_state:
     st.subheader("3️⃣ Coverage Visualization")
     st.write("View gaps in risk coverage to identify weaknesses.")
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
     try:
         with col1:
             st.image("stakeholder_coverage.png", caption="Stakeholder Gaps", use_container_width=True)
@@ -549,8 +543,6 @@ if 'coverage_data' in st.session_state:
             st.image("risk_type_coverage.png", caption="Risk Type Gaps", use_container_width=True)
         with col3:
             st.image("risk_subtype_coverage.png", caption=f"Top {top_n_subtypes} Overlooked Subtype Gaps", use_container_width=True)
-        with col4:
-            st.image("cluster_coverage.png", caption="Cluster Gaps", use_container_width=True)
     except FileNotFoundError:
         st.error("Coverage charts failed to generate. Please try generating feedback again.")
 
