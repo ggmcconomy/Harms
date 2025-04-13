@@ -152,17 +152,14 @@ def create_coverage_charts(covered_stakeholders, missed_stakeholders, covered_ty
     else:
         st.warning("No risk type data to display.")
 
-    # Risk Subtype Chart
-    risk_subtypes = sorted(set(covered_subtypes + missed_subtypes))
-    covered_counts = [covered_subtypes.count(s) for s in risk_subtypes]
-    missed_counts = [missed_subtypes.count(s) for s in risk_subtypes]
-    non_zero_indices = [i for i, (c, m) in enumerate(zip(covered_counts, missed_counts)) if c > 0 or m > 0]
-    risk_subtypes = [risk_subtypes[i] for i in non_zero_indices]
-    covered_counts = [covered_counts[i] for i in non_zero_indices]
-    missed_counts = [missed_counts[i] for i in non_zero_indices]
+    # Risk Subtype Chart (Top 5 Missed Only)
+    subtype_counts = Counter(missed_subtypes)
+    top_missed_subtypes = [subtype for subtype, _ in subtype_counts.most_common(5)]
+    covered_counts = [covered_subtypes.count(s) for s in top_missed_subtypes]
+    missed_counts = [missed_subtypes.count(s) for s in top_missed_subtypes]
     
-    if risk_subtypes:
-        create_coverage_chart("Risk Subtype Coverage Gaps", risk_subtypes, covered_counts, missed_counts, 'risk_subtype_coverage.png')
+    if top_missed_subtypes:
+        create_coverage_chart("Top 5 Overlooked Risk Subtype Gaps", top_missed_subtypes, covered_counts, missed_counts, 'risk_subtype_coverage.png')
     else:
         st.warning("No risk subtype data to display.")
 
@@ -412,8 +409,7 @@ user_input = st.text_area("", value=default_text, height=200, placeholder="Enter
 
 # --- Section 2: Generate Coverage Feedback ---
 st.subheader("2️⃣ Coverage Feedback")
-st.write("Analyze gaps in your risk coverage to broaden analysis.")
-num_missed_risks = st.slider("Number of Suggested Risks to Show", 1, 5, 5)
+st.write("Analyze gaps in your risk coverage with examples.")
 if st.button("🔍 Generate Coverage Feedback"):
     with st.spinner("Analyzing coverage..."):
         if user_input.strip():
@@ -442,10 +438,6 @@ if st.button("🔍 Generate Coverage Feedback"):
                 underrepresented_subtypes = [s for s in df['risk_subtype'].unique() if human_subtypes.count(s) < df['risk_subtype'].value_counts()[s] * 0.1]
                 underrepresented_stakeholders = [s for s in df['stakeholder'].unique() if human_stakeholders.count(s) < df['stakeholder'].value_counts()[s] * 0.1]
 
-                # Get high-severity missed risks
-                top_missed = df[(df['severity'].notna()) & (df['severity'] >= severity_threshold) & (~df['cluster'].isin(covered_clusters))]
-                top_missed = top_missed.sort_values(by='combined_score', ascending=False).head(num_missed_risks)
-
                 # Prepare coverage feedback prompt
                 domain = df['domain'].iloc[0] if 'domain' in df.columns else "AI deployment"
                 prompt = f"""
@@ -453,19 +445,17 @@ if st.button("🔍 Generate Coverage Feedback"):
                 {chr(10).join(f'- {r}' for r in human_risks)}
 
                 Analyze the coverage of these risks against the risk database and provide:
-                1. **Gaps in Coverage**: Identify unconsidered areas:
+                1. **Gaps in Coverage**: Identify unconsidered areas with specific examples:
                    - Unconsidered Clusters: {missed_clusters}
                    - Unconsidered Risk Types: {missed_types}
                    - Unconsidered Risk Subtypes: {missed_subtypes}
                    - Unconsidered Stakeholders: {missed_stakeholders}
-                2. **Underrepresented Areas**: Highlight insufficiently considered areas:
+                2. **Underrepresented Areas**: Highlight insufficiently considered areas with examples:
                    - Risk Types: {underrepresented_types}
                    - Risk Subtypes: {underrepresented_subtypes}
                    - Stakeholders: {underrepresented_stakeholders}
-                3. **Suggested Risks**: Provide up to {num_missed_risks} high-severity missed risks to broaden coverage:
-                   {chr(10).join(f'- {r["risk_description"]} (Type: {r["risk_type"]}, Subtype: {r["risk_subtype"]}, Stakeholder: {r["stakeholder"]})' for r in top_missed.to_dict('records'))}
 
-                Provide detailed feedback explaining why these gaps matter and how addressing them can improve risk analysis. Suggest adding these risks to Mural and re-pulling the updated data for mitigation analysis.
+                For each gap or underrepresented area, provide a concrete example of a risk that could be considered to address it. Explain why these gaps matter and how addressing them can improve risk analysis. Encourage adding inspired risks to Mural and re-pulling data for mitigation analysis.
                 """
 
                 try:
@@ -487,10 +477,10 @@ if st.button("🔍 Generate Coverage Feedback"):
                     covered_types_list = human_risk_types
                     covered_subtypes_list = human_subtypes
                     covered_clusters_list = [r['cluster'] for r in similar_risks]
-                    missed_stakeholders_list = top_missed['stakeholder'].tolist()
-                    missed_types_list = top_missed['risk_type'].tolist()
-                    missed_subtypes_list = top_missed['risk_subtype'].tolist()
-                    missed_clusters_list = top_missed['cluster'].tolist()
+                    missed_stakeholders_list = missed_stakeholders
+                    missed_types_list = missed_types
+                    missed_subtypes_list = missed_subtypes
+                    missed_clusters_list = missed_clusters
 
                     # Generate coverage charts
                     create_coverage_charts(
@@ -501,7 +491,6 @@ if st.button("🔍 Generate Coverage Feedback"):
                         cluster_labels
                     )
 
-                    st.session_state['missed_risks'] = top_missed.to_dict('records')
                     st.session_state['feedback'] = feedback
                     st.session_state['coverage_data'] = {
                         'covered_stakeholders': covered_stakeholders_list,
@@ -529,47 +518,19 @@ if 'coverage_data' in st.session_state:
         with col2:
             st.image("risk_type_coverage.png", caption="Risk Type Gaps", use_container_width=True)
         with col3:
-            st.image("risk_subtype_coverage.png", caption="Risk Subtype Gaps", use_container_width=True)
+            st.image("risk_subtype_coverage.png", caption="Top 5 Overlooked Subtype Gaps", use_container_width=True)
         with col4:
             st.image("cluster_coverage.png", caption="Cluster Gaps", use_container_width=True)
     except FileNotFoundError:
         st.error("Coverage charts failed to generate. Please try generating feedback again.")
 
-# --- Section 4: Feedback and Suggested Risks ---
+# --- Section 4: Coverage Feedback ---
 if 'feedback' in st.session_state:
-    st.subheader("4️⃣ Feedback and Suggested Risks")
-    st.write("Review gaps in your risk analysis and consider adding suggested risks to Mural.")
+    st.subheader("4️⃣ Coverage Feedback")
+    st.write("Review gaps in your risk analysis with examples to inspire additions to Mural.")
     st.markdown("### Coverage Feedback:")
     st.markdown(st.session_state['feedback'])
-    
-    st.markdown("### Suggested Risks:")
-    st.write("Vote on AI-suggested risks to add to Mural. Re-pull Mural data after updates for mitigation analysis.")
-    
-    for idx, risk in enumerate(st.session_state['missed_risks']):
-        risk_key = f"risk_{idx}"
-        short_text = risk['risk_description'][:200] + ("..." if len(risk['risk_description']) > 200 else "")
-        
-        st.markdown(f"**Risk {idx + 1}:** {short_text} (Type: {risk['risk_type']}, Subtype: {risk['risk_subtype']}, Stakeholder: {risk['stakeholder']})")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("👍 Agree", key=f"agree_{risk_key}"):
-                log_feedback(risk['risk_description'], "agree")
-                st.success("Thanks! Copy this risk to add it to Mural manually, then re-pull Mural data.")
-        with col2:
-            if st.button("👎 Disagree", key=f"disagree_{risk_key}"):
-                st.session_state[f"show_disagree_{risk_key}"] = True
-        
-        if st.session_state.get(f"show_disagree_{risk_key}", False):
-            with st.form(key=f"disagree_form_{risk_key}"):
-                disagreement_reason = st.text_area("Why do you disagree?", key=f"reason_{risk_key}", height=100)
-                if st.form_submit_button("Submit"):
-                    if disagreement_reason.strip():
-                        log_feedback(risk['risk_description'], "disagree", disagreement_reason)
-                        st.success("Disagreement noted. Thanks for your input!")
-                        st.session_state[f"show_disagree_{risk_key}"] = False
-                    else:
-                        st.error("Please provide a reason.")
+    st.info("Add inspired risks to Mural based on these examples, then re-pull Mural data for mitigation analysis.")
 
 # --- Section 5: Mitigation Strategies ---
 st.subheader("5️⃣ Mitigation Strategies")
@@ -624,7 +585,7 @@ if 'mitigation_strategies' in st.session_state:
 
 # --- Section 6: Brainstorming Assistant ---
 st.subheader("6️⃣ Brainstorm Risks")
-st.write("Generate creative risk ideas and provide feedback.")
+st.write("Generate creative risk suggestions to broaden your analysis.")
 num_brainstorm_risks = st.slider("Number of Suggestions", 1, 5, 5)
 stakeholder_options = sorted(df['stakeholder'].dropna().unique())
 risk_type_options = sorted(df['risk_type'].dropna().unique())
@@ -635,7 +596,7 @@ with col1:
 with col2:
     risk_type = st.selectbox("Target Risk Type (optional):", ["Any"] + risk_type_options)
 
-if st.button("💡 Generate Suggestions"):
+if st.button("💡 Generate Risk Suggestions"):
     with st.spinner("Generating ideas..."):
         filt = df.copy()
         if stakeholder != "Any":
@@ -644,25 +605,33 @@ if st.button("💡 Generate Suggestions"):
             filt = filt[filt['risk_type'] == risk_type]
         top_suggestions = filt.sort_values(by='combined_score', ascending=False).head(num_brainstorm_risks)
 
-        suggestions = "\n".join(f"- {r}" for r in top_suggestions['risk_description'].tolist())
+        suggestions = "\n".join(f"- {r['risk_description']} (Type: {r['risk_type']}, Subtype: {r['risk_subtype']}, Stakeholder: {r['stakeholder']})" for r in top_suggestions.to_dict('records'))
 
         prompt = f"""
-        Generate {num_brainstorm_risks} creative risk suggestions for an AI deployment based on these:
+        You are a creative AI risk analysis expert for {domain}. Based on these high-priority risks:
         {suggestions}
 
-        Phrase them to help identify overlooked risks. Provide each suggestion as a concise bullet point.
+        Generate {num_brainstorm_risks} new risk suggestions to broaden the risk analysis. Focus on diverse, overlooked risks that complement the existing ones. For each suggestion, include:
+        - A concise risk description
+        - Risk Type
+        - Risk Subtype
+        - Stakeholder
+        - Why it matters
+
+        Format each suggestion as:
+        - Risk: [description] (Type: [type], Subtype: [subtype], Stakeholder: [stakeholder], Why it matters: [reason])
         """
 
         try:
             result = openai_client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "You are an AI brainstorming assistant for risk workshops."},
+                    {"role": "system", "content": "You are a creative AI risk brainstorming assistant."},
                     {"role": "user", "content": prompt}
                 ]
             )
             brainstorm_output = result.choices[0].message.content
-            brainstorm_suggestions = [s.strip() for s in brainstorm_output.split('\n') if s.strip().startswith('- ')]
+            brainstorm_suggestions = [s.strip() for s in brainstorm_output.split('\n') if s.strip().startswith('- Risk:')]
             brainstorm_suggestions = [s[2:].strip() for s in brainstorm_suggestions]
             st.session_state['brainstorm_suggestions'] = brainstorm_suggestions[:num_brainstorm_risks]
         except Exception as e:
@@ -670,20 +639,20 @@ if st.button("💡 Generate Suggestions"):
 
 # Display Brainstorming Suggestions with Feedback
 if 'brainstorm_suggestions' in st.session_state:
-    st.markdown("### Brainstorm Suggestions:")
-    st.write("Vote on AI-generated ideas. Agree to add manually to Mural, or disagree with a reason.")
+    st.markdown("### Brainstormed Risk Suggestions:")
+    st.write("Vote on creative risk ideas to add to Mural, or disagree with a reason.")
     
     for idx, suggestion in enumerate(st.session_state['brainstorm_suggestions']):
         suggestion_key = f"brainstorm_{idx}"
         short_text = suggestion[:200] + ("..." if len(suggestion) > 200 else "")
         
-        st.markdown(f"**Idea {idx + 1}:** {short_text}")
+        st.markdown(f"**Suggestion {idx + 1}:** {short_text}")
         
         col1, col2 = st.columns(2)
         with col1:
             if st.button("👍 Agree", key=f"agree_{suggestion_key}"):
                 log_feedback(suggestion, "agree")
-                st.success("Thanks! Copy this idea to add it to Mural manually, then re-pull Mural data.")
+                st.success("Thanks! Copy this suggestion to add it to Mural manually, then re-pull Mural data.")
         with col2:
             if st.button("👎 Disagree", key=f"disagree_{suggestion_key}"):
                 st.session_state[f"show_disagree_{suggestion_key}"] = True
