@@ -76,33 +76,43 @@ def log_feedback(risk_description, user_feedback, disagreement_reason=""):
     except Exception as e:
         st.error(f"Error logging feedback: {str(e)}")
 
+def create_coverage_chart(title, categories, covered_counts, missed_counts, filename):
+    """Create a single bar chart for coverage."""
+    try:
+        plt.figure(figsize=(6, 4))
+        x = np.arange(len(categories))
+        plt.bar(x - 0.2, covered_counts, 0.4, label='Covered', color='#2ecc71')
+        plt.bar(x + 0.2, missed_counts, 0.4, label='Missed', color='#e74c3c')
+        plt.xlabel(title.split(' ')[-1])
+        plt.ylabel('Number of Risks')
+        plt.title(title)
+        plt.xticks(x, categories, rotation=45, ha='right')
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(filename)
+        plt.close()
+        return True
+    except Exception as e:
+        st.error(f"Error creating chart {filename}: {str(e)}")
+        return False
+
 def create_coverage_charts(covered_stakeholders, missed_stakeholders, covered_types, missed_types, covered_clusters, missed_clusters):
     """Create bar charts for coverage visualization."""
-    plt.style.use('seaborn')
+    plt.style.use('ggplot')
 
     # Stakeholder Chart
     stakeholders = sorted(set(covered_stakeholders + missed_stakeholders))
     covered_counts = [covered_stakeholders.count(s) for s in stakeholders]
     missed_counts = [missed_stakeholders.count(s) for s in stakeholders]
-    # Filter to non-zero categories
     non_zero_indices = [i for i, (c, m) in enumerate(zip(covered_counts, missed_counts)) if c > 0 or m > 0]
     stakeholders = [stakeholders[i] for i in non_zero_indices]
     covered_counts = [covered_counts[i] for i in non_zero_indices]
     missed_counts = [missed_counts[i] for i in non_zero_indices]
     
     if stakeholders:
-        plt.figure(figsize=(6, 4))
-        x = np.arange(len(stakeholders))
-        plt.bar(x - 0.2, covered_counts, 0.4, label='Covered', color='#2ecc71')
-        plt.bar(x + 0.2, missed_counts, 0.4, label='Missed', color='#e74c3c')
-        plt.xlabel('Stakeholders')
-        plt.ylabel('Number of Risks')
-        plt.title('Stakeholder Coverage Gaps')
-        plt.xticks(x, stakeholders, rotation=45, ha='right')
-        plt.legend()
-        plt.tight_layout()
-        plt.savefig('stakeholder_coverage.png')
-        plt.close()
+        create_coverage_chart("Stakeholder Coverage Gaps", stakeholders, covered_counts, missed_counts, 'stakeholder_coverage.png')
+    else:
+        st.warning("No stakeholder data to display.")
 
     # Risk Type Chart
     risk_types = sorted(set(covered_types + missed_types))
@@ -114,18 +124,9 @@ def create_coverage_charts(covered_stakeholders, missed_stakeholders, covered_ty
     missed_counts = [missed_counts[i] for i in non_zero_indices]
     
     if risk_types:
-        plt.figure(figsize=(6, 4))
-        x = np.arange(len(risk_types))
-        plt.bar(x - 0.2, covered_counts, 0.4, label='Covered', color='#2ecc71')
-        plt.bar(x + 0.2, missed_counts, 0.4, label='Missed', color='#e74c3c')
-        plt.xlabel('Risk Types')
-        plt.ylabel('Number of Risks')
-        plt.title('Risk Type Coverage Gaps')
-        plt.xticks(x, risk_types, rotation=45, ha='right')
-        plt.legend()
-        plt.tight_layout()
-        plt.savefig('risk_type_coverage.png')
-        plt.close()
+        create_coverage_chart("Risk Type Coverage Gaps", risk_types, covered_counts, missed_counts, 'risk_type_coverage.png')
+    else:
+        st.warning("No risk type data to display.")
 
     # Cluster Chart
     clusters = sorted(set(covered_clusters + missed_clusters))
@@ -137,18 +138,9 @@ def create_coverage_charts(covered_stakeholders, missed_stakeholders, covered_ty
     missed_counts = [missed_counts[i] for i in non_zero_indices]
     
     if clusters:
-        plt.figure(figsize=(6, 4))
-        x = np.arange(len(clusters))
-        plt.bar(x - 0.2, covered_counts, 0.4, label='Covered', color='#2ecc71')
-        plt.bar(x + 0.2, missed_counts, 0.4, label='Missed', color='#e74c3c')
-        plt.xlabel('Clusters')
-        plt.ylabel('Number of Risks')
-        plt.title('Cluster Coverage Gaps')
-        plt.xticks(x, [f"Cluster {c}" for c in clusters], rotation=45, ha='right')
-        plt.legend()
-        plt.tight_layout()
-        plt.savefig('cluster_coverage.png')
-        plt.close()
+        create_coverage_chart("Cluster Coverage Gaps", [f"Cluster {c}" for c in clusters], covered_counts, missed_counts, 'cluster_coverage.png')
+    else:
+        st.warning("No cluster data to display.")
 
 # --- OAuth Functions ---
 def get_authorization_url():
