@@ -40,6 +40,14 @@ st.text("Secrets loaded.")
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 st.text("OpenAI client ready.")
 
+# --- Utility Functions ---
+def normalize_mural_id(mural_id, workspace_id=MURAL_WORKSPACE_ID):
+    """Strip workspace prefix from mural ID if present."""
+    prefix = f"{workspace_id}."
+    if mural_id.startswith(prefix):
+        return mural_id[len(prefix):]
+    return mural_id
+
 # --- OAuth Functions ---
 def get_authorization_url():
     params = {
@@ -97,46 +105,26 @@ def refresh_access_token(refresh_token):
             return None
 
 # --- Mural API Functions ---
-def list_murals(auth_token, workspace_id=None):
+def list_murals(auth_token):
     url = "https://app.mural.co/api/public/v1/murals"
     headers = {
         "Accept": "application/json",
         "Authorization": f"Bearer {auth_token}"
     }
-    params = {}
-    if workspace_id:
-        params["workspaceId"] = workspace_id
     try:
         session = requests.Session()
         retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
         session.mount('https://', HTTPAdapter(max_retries=retries))
-        # Try without workspaceId first
-        st.write("Debug: Attempting to list murals without workspaceId...")
         response = session.get(url, headers=headers, timeout=10)
-        st.write("Debug: List Murals (No workspaceId) Status Code:", response.status_code)
-        st.write("Debug: List Murals (No workspaceId) Raw Response:", response.text)
+        st.write("Debug: List Murals Status Code:", response.status_code)
+        st.write("Debug: List Murals Raw Response:", response.text)
         if response.status_code == 200:
             murals = response.json().get("value", [])
-            st.write("Debug: Parsed Murals (No workspaceId):", murals)
-            if murals:
-                return murals
+            st.write("Debug: Parsed Murals:", murals)
+            return murals
         else:
-            st.write("Debug: No murals without workspaceId or error occurred.")
-        
-        # Try with workspaceId if provided
-        if workspace_id:
-            st.write("Debug: Attempting to list murals with workspaceId:", workspace_id)
-            response = session.get(url, headers=headers, params=params, timeout=10)
-            st.write("Debug: List Murals (With workspaceId) Status Code:", response.status_code)
-            st.write("Debug: List Murals (With workspaceId) Raw Response:", response.text)
-            if response.status_code == 200:
-                murals = response.json().get("value", [])
-                st.write("Debug: Parsed Murals (With workspaceId):", murals)
-                return murals
-            else:
-                st.error(f"Failed to list murals with workspaceId: {response.status_code} - {response.text}")
-                return []
-        return []
+            st.error(f"Failed to list murals: {response.status_code} - {response.text}")
+            return []
     except Exception as e:
         st.error(f"Error listing murals: {str(e)}")
         return []
@@ -162,7 +150,7 @@ def create_mural(auth_token, workspace_id, title="Test Risk Mural"):
         if response.status_code == 200:
             mural_id = response.json().get("id")
             st.write("Debug: Created Mural ID:", mural_id)
-            return mural_id
+            return normalize_mural_id(mural_id, workspace_id)
         else:
             st.error(f"Failed to create mural: {response.status_code} - {response.text}")
             return None
@@ -249,17 +237,16 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("📥 Mural Actions")
     custom_mural_id = st.text_input("Custom Mural ID (optional)", value=MURAL_BOARD_ID)
-    custom_workspace_id = st.text_input("Custom Workspace ID (optional)", value=MURAL_WORKSPACE_ID)
     if st.button("🔍 List Murals"):
         with st.spinner("Listing murals..."):
-            murals = list_murals(st.session_state.access_token, custom_workspace_id if custom_workspace_id else None)
+            murals = list_murals(st.session_state.access_token)
             if murals:
-                st.write("Available Murals:", [{"id": m["id"], "title": m.get("title", "Untitled")} for m in murals])
+                st.write("Available Murals:", [{"id": normalize_mural_id(m["id"]), "title": m.get("title", "Untitled"), "permissions": m.get("visitorsSettings", {})} for m in murals])
             else:
                 st.warning("No murals found or error occurred. Check debug output above.")
     if st.button("🆕 Create Test Mural"):
         with st.spinner("Creating test mural..."):
-            mural_id = create_mural(st.session_state.access_token, custom_workspace_id or MURAL_WORKSPACE_ID)
+            mural_id = create_mural(st.session_state.access_token, MURAL_WORKSPACE_ID)
             if mural_id:
                 st.success(f"Created mural with ID: {mural_id}")
                 st.session_state['temp_mural_id'] = mural_id
@@ -267,7 +254,7 @@ with st.sidebar:
         with st.spinner("Pulling sticky notes from Mural..."):
             try:
                 headers = {'Authorization': f'Bearer {st.session_state.access_token}'}
-                mural_id = custom_mural_id if custom_mural_id else MURAL_BOARD_ID
+                mural_id = normalize_mural_id(custom_mural_id or st.session_state.get('temp_mural_id', MURAL_BOARD_ID))
                 url = f"https://app.mural.co/api/public/v1/murals/{mural_id}/widgets"
                 session = requests.Session()
                 retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
@@ -293,9 +280,9 @@ with st.sidebar:
                         auth_url = get_authorization_url()
                         st.markdown(f"[Re-authorize the app]({auth_url}).")
                     elif mural_data.status_code == 403:
-                        st.warning("Access denied. Ensure your account is a collaborator.")
+                        st.warning("Access denied. Ensure your account is a collaborator with write access.")
                     elif mural_data.status_code == 404:
-                        st.warning(f"Mural ID {mural_id} not found. Try creating a new mural or using a different ID.")
+                        st.warning(f"Mural ID {mural_id} not found. Try the new mural ID or listing murals.")
                     st.write("Raw API response:", mural_data.json())
             except Exception as e:
                 st.error(f"Error connecting to Mural: {str(e)}")
@@ -357,7 +344,7 @@ if st.button("🔍 Generate Feedback"):
                 st.markdown("### 🧠 Feedback:")
                 st.markdown(feedback)
 
-                st.session_state['missed_risks'] = top_missed.to_dict(orient='records')
+                st.session_state['missed_risks'] = top_missed.to_dict('records')
                 st.session_state['feedback'] = feedback
             except Exception as e:
                 st.error(f"OpenAI API error: {str(e)}")
@@ -390,7 +377,7 @@ if 'missed_risks' in st.session_state:
                     'Authorization': f'Bearer {st.session_state.access_token}',
                     'Content-Type': 'application/json'
                 }
-                mural_id = custom_mural_id if custom_mural_id else MURAL_BOARD_ID
+                mural_id = normalize_mural_id(custom_mural_id or st.session_state.get('temp_mural_id', MURAL_BOARD_ID))
                 url = f"https://app.mural.co/api/public/v1/murals/{mural_id}/widgets"
                 try:
                     session = requests.Session()
@@ -411,7 +398,7 @@ if 'missed_risks' in st.session_state:
                         elif res.status_code == 403:
                             st.warning("Access denied for posting. Ensure collaborator status.")
                         elif res.status_code == 404:
-                            st.warning(f"Mural ID {mural_id} not found. Try creating a new mural.")
+                            st.warning(f"Mural ID {mural_id} not found. Try the new mural ID.")
                 except Exception as e:
                     st.error(f"Error posting to Mural: {str(e)}")
             else:
