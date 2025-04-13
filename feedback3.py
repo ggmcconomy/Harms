@@ -12,6 +12,8 @@ from urllib.parse import urlencode
 from bs4 import BeautifulSoup
 from datetime import datetime
 import matplotlib.pyplot as plt
+from collections import Counter
+import re
 
 # Temporarily disable torch.classes to avoid Streamlit watcher error
 sys.modules['torch.classes'] = None
@@ -76,6 +78,28 @@ def log_feedback(risk_description, user_feedback, disagreement_reason=""):
     except Exception as e:
         st.error(f"Error logging feedback: {str(e)}")
 
+def get_cluster_labels(df):
+    """Generate descriptive labels for clusters based on risk descriptions."""
+    cluster_labels = {}
+    for cluster_id in df['cluster'].unique():
+        cluster_risks = df[df['cluster'] == cluster_id]['risk_description'].dropna()
+        if not cluster_risks.empty:
+            # Combine all risk descriptions in the cluster
+            text = ' '.join(cluster_risks).lower()
+            # Tokenize and remove common stopwords
+            words = re.findall(r'\b\w+\b', text)
+            stopwords = {'the', 'and', 'of', 'to', 'in', 'a', 'is', 'that', 'for', 'on', 'with', 'by', 'at', 'this', 'but', 'from', 'or', 'an', 'are'}
+            words = [w for w in words if w not in stopwords and len(w) > 3]
+            # Get most common words
+            word_counts = Counter(words)
+            top_words = [word for word, _ in word_counts.most_common(2)]
+            # Create label
+            label = ' '.join(top_words).title() if top_words else f"Cluster {cluster_id}"
+            cluster_labels[cluster_id] = label
+        else:
+            cluster_labels[cluster_id] = f"Cluster {cluster_id}"
+    return cluster_labels
+
 def create_coverage_chart(title, categories, covered_counts, missed_counts, filename):
     """Create a single bar chart for coverage."""
     try:
@@ -96,7 +120,7 @@ def create_coverage_chart(title, categories, covered_counts, missed_counts, file
         st.error(f"Error creating chart {filename}: {str(e)}")
         return False
 
-def create_coverage_charts(covered_stakeholders, missed_stakeholders, covered_types, missed_types, covered_clusters, missed_clusters):
+def create_coverage_charts(covered_stakeholders, missed_stakeholders, covered_types, missed_types, covered_clusters, missed_clusters, cluster_labels):
     """Create bar charts for coverage visualization."""
     try:
         plt.style.use('ggplot')
@@ -142,7 +166,9 @@ def create_coverage_charts(covered_stakeholders, missed_stakeholders, covered_ty
     missed_counts = [missed_counts[i] for i in non_zero_indices]
     
     if clusters:
-        create_coverage_chart("Cluster Coverage Gaps", [f"Cluster {c}" for c in clusters], covered_counts, missed_counts, 'cluster_coverage.png')
+        # Use descriptive cluster labels
+        cluster_display_labels = [cluster_labels.get(c, f"Cluster {c}") for c in clusters]
+        create_coverage_chart("Cluster Coverage Gaps", cluster_display_labels, covered_counts, missed_counts, 'cluster_coverage.png')
     else:
         st.warning("No cluster data to display.")
 
@@ -297,6 +323,9 @@ except FileNotFoundError:
 # Initialize embedder
 embedder = SentenceTransformer('all-MiniLM-L6-v2')
 
+# Generate cluster labels
+cluster_labels = get_cluster_labels(df)
+
 # --- Sidebar Settings ---
 with st.sidebar:
     st.header("🔧 Settings")
@@ -430,7 +459,8 @@ if st.button("🔍 Generate Feedback"):
                             create_coverage_charts(
                                 covered_stakeholders, missed_stakeholders,
                                 covered_types, missed_types,
-                                covered_clusters, missed_clusters
+                                covered_clusters, missed_clusters,
+                                cluster_labels
                             )
                         except Exception as e:
                             st.error(f"Error generating coverage charts: {str(e)}")
@@ -457,11 +487,11 @@ if 'coverage_data' in st.session_state:
     col1, col2, col3 = st.columns(3)
     try:
         with col1:
-            st.image("stakeholder_coverage.png", caption="Stakeholder Gaps", use_column_width=True)
+            st.image("stakeholder_coverage.png", caption="Stakeholder Gaps", use_container_width=True)
         with col2:
-            st.image("risk_type_coverage.png", caption="Risk Type Gaps", use_column_width=True)
+            st.image("risk_type_coverage.png", caption="Risk Type Gaps", use_container_width=True)
         with col3:
-            st.image("cluster_coverage.png", caption="Cluster Gaps", use_column_width=True)
+            st.image("cluster_coverage.png", caption="Cluster Gaps", use_container_width=True)
     except FileNotFoundError:
         st.error("Coverage charts failed to generate. Please try generating feedback again.")
 
