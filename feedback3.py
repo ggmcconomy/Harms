@@ -542,17 +542,17 @@ if 'feedback' in st.session_state:
 # --- Section 5: Brainstorm Risks ---
 st.subheader("5️⃣ Brainstorm Risks")
 st.write("Generate creative risk suggestions to broaden your analysis.")
-num_brainstorm_risks = st.slider("Number of Suggestions", 1, 5, 5)
+num_brainstorm_risks = st.slider("Number of Suggestions", 1, 5, 5, key="num_brainstorm_risks")
 stakeholder_options = sorted(df['stakeholder'].dropna().unique())
 risk_type_options = sorted(df['risk_type'].dropna().unique())
 
 col1, col2 = st.columns(2)
 with col1:
-    stakeholder = st.selectbox("Target Stakeholder (optional):", ["Any"] + stakeholder_options)
+    stakeholder = st.selectbox("Target Stakeholder (optional):", ["Any"] + stakeholder_options, key="brainstorm_stakeholder")
 with col2:
-    risk_type = st.selectbox("Target Risk Type (optional):", ["Any"] + risk_type_options)
+    risk_type = st.selectbox("Target Risk Type (optional):", ["Any"] + risk_type_options, key="brainstorm_risk_type")
 
-if st.button("💡 Generate Risk Suggestions"):
+if st.button("💡 Generate Risk Suggestions", key="generate_risk_suggestions"):
     with st.spinner("Generating ideas..."):
         filt = df.copy()
         if stakeholder != "Any":
@@ -562,6 +562,9 @@ if st.button("💡 Generate Risk Suggestions"):
         top_suggestions = filt.sort_values(by='combined_score', ascending=False).head(num_brainstorm_risks)
 
         suggestions = "\n".join(f"- {r['risk_description']} (Type: {r['risk_type']}, Subtype: {r['risk_subtype']}, Stakeholder: {r['stakeholder']})" for r in top_suggestions.to_dict('records'))
+
+        # Ensure domain is defined
+        domain = df['domain'].iloc[0] if 'domain' in df.columns else "AI deployment"
 
         prompt = f"""
         You are a creative AI risk analysis expert for {domain}. Based on these high-priority risks:
