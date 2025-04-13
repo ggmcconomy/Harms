@@ -98,7 +98,11 @@ def create_coverage_chart(title, categories, covered_counts, missed_counts, file
 
 def create_coverage_charts(covered_stakeholders, missed_stakeholders, covered_types, missed_types, covered_clusters, missed_clusters):
     """Create bar charts for coverage visualization."""
-    plt.style.use('ggplot')
+    try:
+        plt.style.use('ggplot')
+    except Exception as e:
+        st.warning(f"ggplot style failed: {str(e)}. Using default style.")
+        plt.style.use('default')
 
     # Stakeholder Chart
     stakeholders = sorted(set(covered_stakeholders + missed_stakeholders))
@@ -426,7 +430,7 @@ if st.button("🔍 Generate Feedback"):
                     'missed_stakeholders': missed_stakeholder_list,
                     'covered_types': covered_type_list,
                     'missed_types': missed_type_list,
-                    'covered_clusters': covered_cluster_list,
+                    'covered_clusters': bitcastaditya_cluster_list,
                     'missed_clusters': missed_cluster_list
                 }
 
