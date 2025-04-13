@@ -129,7 +129,7 @@ def list_murals(auth_token):
         st.error(f"Error listing murals: {str(e)}")
         return []
 
-def create_mural(auth_token, workspace_id, title="Test Risk Mural"):
+def create_mural(auth_token, workspace_id, room_id=None, title="Test Risk Mural"):
     url = "https://app.mural.co/api/public/v1/murals"
     headers = {
         "Accept": "application/json",
@@ -140,6 +140,8 @@ def create_mural(auth_token, workspace_id, title="Test Risk Mural"):
         "workspaceId": workspace_id,
         "title": title
     }
+    if room_id:
+        payload["roomId"] = int(room_id)
     try:
         session = requests.Session()
         retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
@@ -237,16 +239,18 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("📥 Mural Actions")
     custom_mural_id = st.text_input("Custom Mural ID (optional)", value=MURAL_BOARD_ID)
+    use_full_id = st.checkbox("Use full mural ID (e.g., aiimpacttesting2642.<id>)", value=False)
     if st.button("🔍 List Murals"):
         with st.spinner("Listing murals..."):
             murals = list_murals(st.session_state.access_token)
             if murals:
-                st.write("Available Murals:", [{"id": normalize_mural_id(m["id"]), "title": m.get("title", "Untitled"), "permissions": m.get("visitorsSettings", {})} for m in murals])
+                st.write("Available Murals:", [{"id": normalize_mural_id(m["id"]), "full_id": m["id"], "title": m.get("title", "Untitled"), "permissions": m.get("visitorsSettings", {})} for m in murals])
             else:
                 st.warning("No murals found or error occurred. Check debug output above.")
     if st.button("🆕 Create Test Mural"):
         with st.spinner("Creating test mural..."):
-            mural_id = create_mural(st.session_state.access_token, MURAL_WORKSPACE_ID)
+            room_id = 1740767942646471  # From listed murals
+            mural_id = create_mural(st.session_state.access_token, MURAL_WORKSPACE_ID, room_id)
             if mural_id:
                 st.success(f"Created mural with ID: {mural_id}")
                 st.session_state['temp_mural_id'] = mural_id
@@ -254,11 +258,14 @@ with st.sidebar:
         with st.spinner("Pulling sticky notes from Mural..."):
             try:
                 headers = {'Authorization': f'Bearer {st.session_state.access_token}'}
-                mural_id = normalize_mural_id(custom_mural_id or st.session_state.get('temp_mural_id', MURAL_BOARD_ID))
+                mural_id = custom_mural_id or st.session_state.get('temp_mural_id', MURAL_BOARD_ID)
+                if not use_full_id:
+                    mural_id = normalize_mural_id(mural_id)
                 url = f"https://app.mural.co/api/public/v1/murals/{mural_id}/widgets"
                 session = requests.Session()
                 retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
                 session.mount('https://', HTTPAdapter(max_retries=retries))
+                st.write("Debug: API Headers:", headers)
                 mural_data = session.get(url, headers=headers, timeout=10)
                 st.write("Debug: Mural ID Used:", mural_id)
                 st.write("Debug: Status Code:", mural_data.status_code)
@@ -282,7 +289,7 @@ with st.sidebar:
                     elif mural_data.status_code == 403:
                         st.warning("Access denied. Ensure your account is a collaborator with write access.")
                     elif mural_data.status_code == 404:
-                        st.warning(f"Mural ID {mural_id} not found. Try the new mural ID or listing murals.")
+                        st.warning(f"Mural ID {mural_id} not found. Try the full ID or creating a new mural.")
                     st.write("Raw API response:", mural_data.json())
             except Exception as e:
                 st.error(f"Error connecting to Mural: {str(e)}")
@@ -377,12 +384,15 @@ if 'missed_risks' in st.session_state:
                     'Authorization': f'Bearer {st.session_state.access_token}',
                     'Content-Type': 'application/json'
                 }
-                mural_id = normalize_mural_id(custom_mural_id or st.session_state.get('temp_mural_id', MURAL_BOARD_ID))
+                mural_id = custom_mural_id or st.session_state.get('temp_mural_id', MURAL_BOARD_ID)
+                if not use_full_id:
+                    mural_id = normalize_mural_id(mural_id)
                 url = f"https://app.mural.co/api/public/v1/murals/{mural_id}/widgets"
                 try:
                     session = requests.Session()
                     retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
                     session.mount('https://', HTTPAdapter(max_retries=retries))
+                    st.write("Debug: API Headers:", headers)
                     res = session.post(url, headers=headers, json=payload)
                     st.write("Debug: Post response:", res.status_code, res.json())
                     if res.status_code in [200, 201]:
@@ -398,7 +408,8 @@ if 'missed_risks' in st.session_state:
                         elif res.status_code == 403:
                             st.warning("Access denied for posting. Ensure collaborator status.")
                         elif res.status_code == 404:
-                            st.warning(f"Mural ID {mural_id} not found. Try the new mural ID.")
+                            st.warning(f"Mural ID {mural_id} not found. Try the full ID.")
+                    st.write("Raw post response:", res.json())
                 except Exception as e:
                     st.error(f"Error posting to Mural: {str(e)}")
             else:
