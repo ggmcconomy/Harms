@@ -97,30 +97,78 @@ def refresh_access_token(refresh_token):
             return None
 
 # --- Mural API Functions ---
-def list_murals(auth_token, workspace_id):
+def list_murals(auth_token, workspace_id=None):
     url = "https://app.mural.co/api/public/v1/murals"
     headers = {
         "Accept": "application/json",
         "Authorization": f"Bearer {auth_token}"
     }
-    params = {"workspaceId": workspace_id}
+    params = {}
+    if workspace_id:
+        params["workspaceId"] = workspace_id
     try:
         session = requests.Session()
         retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
         session.mount('https://', HTTPAdapter(max_retries=retries))
-        response = session.get(url, headers=headers, params=params, timeout=10)
-        st.write("Debug: List Murals Status Code:", response.status_code)
-        st.write("Debug: List Murals Raw Response:", response.text)
+        # Try without workspaceId first
+        st.write("Debug: Attempting to list murals without workspaceId...")
+        response = session.get(url, headers=headers, timeout=10)
+        st.write("Debug: List Murals (No workspaceId) Status Code:", response.status_code)
+        st.write("Debug: List Murals (No workspaceId) Raw Response:", response.text)
         if response.status_code == 200:
             murals = response.json().get("value", [])
-            st.write("Debug: Parsed Murals:", murals)
-            return murals
+            st.write("Debug: Parsed Murals (No workspaceId):", murals)
+            if murals:
+                return murals
         else:
-            st.error(f"Failed to list murals: {response.status_code} - {response.text}")
-            return []
+            st.write("Debug: No murals without workspaceId or error occurred.")
+        
+        # Try with workspaceId if provided
+        if workspace_id:
+            st.write("Debug: Attempting to list murals with workspaceId:", workspace_id)
+            response = session.get(url, headers=headers, params=params, timeout=10)
+            st.write("Debug: List Murals (With workspaceId) Status Code:", response.status_code)
+            st.write("Debug: List Murals (With workspaceId) Raw Response:", response.text)
+            if response.status_code == 200:
+                murals = response.json().get("value", [])
+                st.write("Debug: Parsed Murals (With workspaceId):", murals)
+                return murals
+            else:
+                st.error(f"Failed to list murals with workspaceId: {response.status_code} - {response.text}")
+                return []
+        return []
     except Exception as e:
         st.error(f"Error listing murals: {str(e)}")
         return []
+
+def create_mural(auth_token, workspace_id, title="Test Risk Mural"):
+    url = "https://app.mural.co/api/public/v1/murals"
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {auth_token}"
+    }
+    payload = {
+        "workspaceId": workspace_id,
+        "title": title
+    }
+    try:
+        session = requests.Session()
+        retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
+        session.mount('https://', HTTPAdapter(max_retries=retries))
+        response = session.post(url, headers=headers, json=payload, timeout=10)
+        st.write("Debug: Create Mural Status Code:", response.status_code)
+        st.write("Debug: Create Mural Response:", response.text)
+        if response.status_code == 200:
+            mural_id = response.json().get("id")
+            st.write("Debug: Created Mural ID:", mural_id)
+            return mural_id
+        else:
+            st.error(f"Failed to create mural: {response.status_code} - {response.text}")
+            return None
+    except Exception as e:
+        st.error(f"Error creating mural: {str(e)}")
+        return None
 
 # --- Handle OAuth Flow ---
 st.text("Checking OAuth status...")
@@ -201,13 +249,20 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("📥 Mural Actions")
     custom_mural_id = st.text_input("Custom Mural ID (optional)", value=MURAL_BOARD_ID)
+    custom_workspace_id = st.text_input("Custom Workspace ID (optional)", value=MURAL_WORKSPACE_ID)
     if st.button("🔍 List Murals"):
         with st.spinner("Listing murals..."):
-            murals = list_murals(st.session_state.access_token, MURAL_WORKSPACE_ID)
+            murals = list_murals(st.session_state.access_token, custom_workspace_id if custom_workspace_id else None)
             if murals:
                 st.write("Available Murals:", [{"id": m["id"], "title": m.get("title", "Untitled")} for m in murals])
             else:
                 st.warning("No murals found or error occurred. Check debug output above.")
+    if st.button("🆕 Create Test Mural"):
+        with st.spinner("Creating test mural..."):
+            mural_id = create_mural(st.session_state.access_token, custom_workspace_id or MURAL_WORKSPACE_ID)
+            if mural_id:
+                st.success(f"Created mural with ID: {mural_id}")
+                st.session_state['temp_mural_id'] = mural_id
     if st.button("🔄 Pull Sticky Notes from Mural"):
         with st.spinner("Pulling sticky notes from Mural..."):
             try:
@@ -240,7 +295,7 @@ with st.sidebar:
                     elif mural_data.status_code == 403:
                         st.warning("Access denied. Ensure your account is a collaborator.")
                     elif mural_data.status_code == 404:
-                        st.warning(f"Mural ID {mural_id} not found. Try listing murals or using a different ID.")
+                        st.warning(f"Mural ID {mural_id} not found. Try creating a new mural or using a different ID.")
                     st.write("Raw API response:", mural_data.json())
             except Exception as e:
                 st.error(f"Error connecting to Mural: {str(e)}")
@@ -356,7 +411,7 @@ if 'missed_risks' in st.session_state:
                         elif res.status_code == 403:
                             st.warning("Access denied for posting. Ensure collaborator status.")
                         elif res.status_code == 404:
-                            st.warning(f"Mural ID {mural_id} not found. Try listing murals.")
+                            st.warning(f"Mural ID {mural_id} not found. Try creating a new mural.")
                 except Exception as e:
                     st.error(f"Error posting to Mural: {str(e)}")
             else:
