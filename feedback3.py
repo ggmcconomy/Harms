@@ -369,4 +369,3 @@ if st.button("💡 Suggest AI-Generated Risks"):
             st.markdown(brainstorm_output)
         except Exception as e:
             st.error(f"OpenAI API error: {str(e)}")
-```
