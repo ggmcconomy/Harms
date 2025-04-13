@@ -420,12 +420,9 @@ if 'missed_risks' in st.session_state:
             idx = st.session_state.posted_count
             if idx < len(missed_risks):
                 risk = missed_risks[idx]
-                # Shorten text to avoid length issues
-                short_text = risk['risk_description'][:100] + ("..." if len(risk['risk_description']) > 100 else "")
+                # Ultra-minimal payload
                 payload = {
-                    "x": 1000,
-                    "y": 1000,
-                    "text": f"Missed Risk: {short_text}",
+                    "text": "Test Sticky Note",
                     "type": "sticky note"
                 }
                 headers = {
@@ -454,37 +451,28 @@ if 'missed_risks' in st.session_state:
                         st.session_state.posted_count += 1
                     else:
                         st.error(f"Error posting to Mural (/stickynote): {res.status_code} - {res.text}")
-                        # Try /elements endpoint
-                        st.write("Debug: Trying /elements endpoint...")
-                        url = f"https://app.mural.co/api/public/v1/murals/{mural_id}/elements"
+                        st.warning("Sticky note creation failed. You may need to manually add the risk to Mural or contact support@mural.co.")
+                        # Try numeric ID
+                        numeric_id = normalize_mural_id(mural_id)
+                        st.write("Debug: Trying POST with numeric mural ID:", numeric_id)
+                        url = f"https://app.mural.co/api/public/v1/murals/{numeric_id}/stickynote"
                         res = session.post(url, headers=headers, json=payload)
-                        st.write("Debug: Post response (/elements):", res.status_code, res.json())
+                        st.write("Debug: Post response (numeric ID, /stickynote):", res.status_code, res.json())
                         if res.status_code in [200, 201]:
                             st.success(f"Posted: {risk['risk_description'][:50]}...")
                             st.session_state.posted_count += 1
                         else:
-                            st.error(f"Error posting to Mural (/elements): {res.status_code} - {res.text}")
-                            # Try numeric ID
-                            numeric_id = normalize_mural_id(mural_id)
-                            st.write("Debug: Trying POST with numeric mural ID:", numeric_id)
-                            url = f"https://app.mural.co/api/public/v1/murals/{numeric_id}/stickynote"
-                            res = session.post(url, headers=headers, json=payload)
-                            st.write("Debug: Post response (numeric ID, /stickynote):", res.status_code, res.json())
-                            if res.status_code in [200, 201]:
-                                st.success(f"Posted: {risk['risk_description'][:50]}...")
-                                st.session_state.posted_count += 1
-                            else:
-                                st.error(f"Error posting to Mural (numeric ID, /stickynote): {res.status_code} - {res.text}")
-                                if res.status_code == 401:
-                                    st.warning("OAuth token invalid. Please re-authenticate.")
-                                    st.session_state.access_token = None
-                                    auth_url = get_authorization_url()
-                                    st.markdown(f"[Re-authorize the app]({auth_url}).")
-                                elif res.status_code == 403:
-                                    st.warning("Access denied for posting. Ensure collaborator status.")
-                                elif res.status_code == 404:
-                                    st.warning(f"Mural ID {numeric_id} not found. Try creating a new mural.")
-                            st.write("Raw post response:", res.json())
+                            st.error(f"Error posting to Mural (numeric ID, /stickynote): {res.status_code} - {res.text}")
+                            if res.status_code == 401:
+                                st.warning("OAuth token invalid. Please re-authenticate.")
+                                st.session_state.access_token = None
+                                auth_url = get_authorization_url()
+                                st.markdown(f"[Re-authorize the app]({auth_url}).")
+                            elif res.status_code == 403:
+                                st.warning("Access denied for posting. Ensure collaborator status.")
+                            elif res.status_code == 404:
+                                st.warning(f"Mural ID {numeric_id} not found. Try creating a new mural.")
+                        st.write("Raw post response:", res.json())
                 except Exception as e:
                     st.error(f"Error posting to Mural: {str(e)}")
             else:
