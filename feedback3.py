@@ -6,7 +6,6 @@ import pandas as pd
 import numpy as np
 import streamlit as st
 import sys
-from collections import Counter
 from urllib3.util.retry import Retry
 from requests.adapters import HTTPAdapter
 from urllib.parse import urlencode
@@ -21,10 +20,7 @@ from openai import OpenAI
 st.set_page_config(page_title="AI Risk Feedback & Brainstorming", layout="wide")
 st.title("🤖 AI-Powered Risk Analysis and Brainstorming for Mural")
 
-# Progress message
 st.text("Starting app...")
-
-# Debug: Session state keys
 st.write("Debug: All session state keys:", list(st.session_state.keys()))
 
 # Load secrets
@@ -34,6 +30,7 @@ try:
     MURAL_CLIENT_SECRET = st.secrets["MURAL_CLIENT_SECRET"]
     MURAL_BOARD_ID = st.secrets["MURAL_BOARD_ID"]
     MURAL_REDIRECT_URI = st.secrets["MURAL_REDIRECT_URI"]
+    MURAL_WORKSPACE_ID = st.secrets.get("MURAL_WORKSPACE_ID", "aiimpacttesting2642")
 except KeyError as e:
     st.error(f"Missing secret: {e}. Please configure secrets in .streamlit/secrets.toml.")
     st.stop()
@@ -99,6 +96,30 @@ def refresh_access_token(refresh_token):
             st.error(f"Error refreshing token: {str(e)}")
             return None
 
+# --- Mural API Functions ---
+def list_murals(auth_token, workspace_id):
+    url = "https://app.mural.co/api/public/v1/murals"
+    headers = {
+        "Accept": "application/json",
+        "Authorization": f"Bearer {auth_token}"
+    }
+    params = {"workspaceId": workspace_id}
+    try:
+        session = requests.Session()
+        retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
+        session.mount('https://', HTTPAdapter(max_retries=retries))
+        response = session.get(url, headers=headers, params=params, timeout=10)
+        st.write("Debug: List Murals Status Code:", response.status_code)
+        st.write("Debug: List Murals Response:", response.json())
+        if response.status_code == 200:
+            return response.json().get("value", [])
+        else:
+            st.error(f"Failed to list murals: {response.status_code} - {response.text}")
+            return []
+    except Exception as e:
+        st.error(f"Error listing murals: {str(e)}")
+        return []
+
 # --- Handle OAuth Flow ---
 st.text("Checking OAuth status...")
 if "access_token" not in st.session_state:
@@ -107,7 +128,6 @@ if "access_token" not in st.session_state:
     st.session_state.token_expires_in = None
     st.session_state.token_timestamp = None
 
-# Check for authorization code
 query_params = st.query_params
 auth_code = query_params.get("code")
 if auth_code and not st.session_state.access_token:
@@ -123,7 +143,6 @@ if auth_code and not st.session_state.access_token:
         st.success("Authenticated with Mural!")
         st.rerun()
 
-# Prompt user to authenticate
 if not st.session_state.access_token:
     st.text("Waiting for Mural authentication...")
     auth_url = get_authorization_url()
@@ -131,7 +150,6 @@ if not st.session_state.access_token:
     st.info("Click the link above, log into Mural, and authorize. You’ll be redirected back here.")
     st.stop()
 
-# Refresh token if expired
 if st.session_state.access_token:
     current_time = pd.Timestamp.now().timestamp()
     if (current_time - st.session_state.token_timestamp) > (st.session_state.token_expires_in - 60):
@@ -179,7 +197,14 @@ with st.sidebar:
     severity_threshold = st.slider("Severity Threshold", 0.0, 5.0, 4.0, 0.5)
     top_k = st.slider("Top Similar Risks to Retrieve", 1, 10, 5)
     st.markdown("---")
-    st.subheader("📥 Pull Mural Notes")
+    st.subheader("📥 Mural Actions")
+    if st.button("🔍 List Murals"):
+        with st.spinner("Listing murals..."):
+            murals = list_murals(st.session_state.access_token, MURAL_WORKSPACE_ID)
+            if murals:
+                st.write("Available Murals:", [{"id": m["id"], "title": m["title"]} for m in murals])
+            else:
+                st.warning("No murals found or error occurred.")
     if st.button("🔄 Pull Sticky Notes from Mural"):
         with st.spinner("Pulling sticky notes from Mural..."):
             try:
@@ -210,7 +235,7 @@ with st.sidebar:
                     elif mural_data.status_code == 403:
                         st.warning("Access denied. Ensure your account is a collaborator.")
                     elif mural_data.status_code == 404:
-                        st.warning("Mural not found. Please check MURAL_BOARD_ID.")
+                        st.warning(f"Mural ID {MURAL_BOARD_ID} not found. Try listing murals.")
                     st.write("Raw API response:", mural_data.json())
             except Exception as e:
                 st.error(f"Error connecting to Mural: {str(e)}")
@@ -233,7 +258,6 @@ if st.button("🔍 Generate Feedback"):
             distances, indices = index.search(human_embeddings, top_k)
             similar_risks = [df.iloc[idx].to_dict('records') for idx in indices]
 
-            # Extract covered and missed themes
             covered_clusters = {r['cluster'] for group in similar_risks for r in group}
             covered_types = {r['risk_type'] for group in similar_risks for r in group}
             covered_stakeholders = {r['stakeholder'] for group in similar_risks for r in group}
@@ -322,6 +346,8 @@ if 'missed_risks' in st.session_state:
                             st.markdown(f"[Re-authorize the app]({auth_url}).")
                         elif res.status_code == 403:
                             st.warning("Access denied for posting. Ensure collaborator status.")
+                        elif res.status_code == 404:
+                            st.warning(f"Mural ID {MURAL_BOARD_ID} not found. Try listing murals.")
                 except Exception as e:
                     st.error(f"Error posting to Mural: {str(e)}")
             else:
