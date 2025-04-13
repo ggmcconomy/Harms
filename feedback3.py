@@ -60,9 +60,13 @@ def clean_html_text(html_text):
     """Strip HTML tags and clean text."""
     if not html_text:
         return ""
-    soup = BeautifulSoup(html_text, "html.parser")
-    text = soup.get_text(separator=" ").strip()
-    return text
+    try:
+        soup = BeautifulSoup(html_text, "html.parser")
+        text = soup.get_text(separator=" ").strip()
+        return text if text else ""
+    except Exception as e:
+        st.write("Debug: Error cleaning HTML:", str(e))
+        return ""
 
 # --- OAuth Functions ---
 def get_authorization_url():
@@ -290,7 +294,6 @@ with st.sidebar:
             try:
                 headers = {'Authorization': f'Bearer {st.session_state.access_token}'}
                 mural_id = custom_mural_id or st.session_state.get('temp_mural_id', MURAL_BOARD_ID)
-                # Try full ID first
                 st.write("Debug: Trying mural ID:", mural_id)
                 if not verify_mural(st.session_state.access_token, mural_id):
                     st.warning(f"Mural {mural_id} not found. Trying normalized ID...")
@@ -306,16 +309,19 @@ with st.sidebar:
                 st.write("Debug: Status Code:", mural_data.status_code)
                 st.write("Debug: Full API Response:", mural_data.json())
                 if mural_data.status_code == 200:
-                    widgets = mural_data.json().get("value", [])
+                    # Handle both 'value' and 'data' keys
+                    widgets = mural_data.json().get("value", mural_data.json().get("data", []))
                     st.write("Debug: Total Widgets:", len(widgets))
                     sticky_widgets = [w for w in widgets if w.get('type') == 'sticky_note']
                     st.write("Debug: Sticky Notes:", sticky_widgets)
                     stickies = []
                     for w in sticky_widgets:
-                        # Try htmlText first, fallback to text
-                        text = w.get('htmlText') or w.get('text', '')
-                        if text:
-                            cleaned_text = clean_html_text(text)
+                        # Try htmlText first, then text
+                        raw_text = w.get('htmlText') or w.get('text') or ''
+                        st.write("Debug: Raw Sticky Text:", raw_text)
+                        if raw_text:
+                            cleaned_text = clean_html_text(raw_text)
+                            st.write("Debug: Cleaned Sticky Text:", cleaned_text)
                             if cleaned_text:
                                 stickies.append(cleaned_text)
                     st.write("Debug: Extracted Stickies:", stickies)
