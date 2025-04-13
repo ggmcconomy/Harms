@@ -21,7 +21,7 @@ from openai import OpenAI
 
 # --- Configuration ---
 st.set_page_config(page_title="AI Risk Feedback & Brainstorming", layout="wide")
-st.title("🤖 AI-Powered Risk Analysis and Brainstorming for Mural")
+st.title("🤖 AI Risk Analysis Dashboard")
 
 # Load secrets
 try:
@@ -44,13 +44,6 @@ def normalize_mural_id(mural_id, workspace_id=MURAL_WORKSPACE_ID):
     prefix = f"{workspace_id}."
     if mural_id.startswith(prefix):
         return mural_id[len(prefix):]
-    return mural_id
-
-def denormalize_mural_id(mural_id, workspace_id=MURAL_WORKSPACE_ID):
-    """Add workspace prefix to mural ID if not present."""
-    prefix = f"{workspace_id}."
-    if not mural_id.startswith(prefix):
-        return f"{prefix}{mural_id}"
     return mural_id
 
 def clean_html_text(html_text):
@@ -88,58 +81,74 @@ def create_coverage_charts(covered_stakeholders, missed_stakeholders, covered_ty
     plt.style.use('seaborn')
 
     # Stakeholder Chart
-    stakeholders = list(set(covered_stakeholders).union(missed_stakeholders))
+    stakeholders = sorted(set(covered_stakeholders + missed_stakeholders))
     covered_counts = [covered_stakeholders.count(s) for s in stakeholders]
     missed_counts = [missed_stakeholders.count(s) for s in stakeholders]
+    # Filter to non-zero categories
+    non_zero_indices = [i for i, (c, m) in enumerate(zip(covered_counts, missed_counts)) if c > 0 or m > 0]
+    stakeholders = [stakeholders[i] for i in non_zero_indices]
+    covered_counts = [covered_counts[i] for i in non_zero_indices]
+    missed_counts = [missed_counts[i] for i in non_zero_indices]
     
-    plt.figure(figsize=(6, 4))
-    x = np.arange(len(stakeholders))
-    plt.bar(x - 0.2, covered_counts, 0.4, label='Covered', color='green')
-    plt.bar(x + 0.2, missed_counts, 0.4, label='Missed', color='red')
-    plt.xlabel('Stakeholders')
-    plt.ylabel('Number of Risks')
-    plt.title('Risk Coverage by Stakeholder')
-    plt.xticks(x, stakeholders, rotation=45, ha='right')
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig('stakeholder_coverage.png')
-    plt.close()
+    if stakeholders:
+        plt.figure(figsize=(6, 4))
+        x = np.arange(len(stakeholders))
+        plt.bar(x - 0.2, covered_counts, 0.4, label='Covered', color='#2ecc71')
+        plt.bar(x + 0.2, missed_counts, 0.4, label='Missed', color='#e74c3c')
+        plt.xlabel('Stakeholders')
+        plt.ylabel('Number of Risks')
+        plt.title('Stakeholder Coverage Gaps')
+        plt.xticks(x, stakeholders, rotation=45, ha='right')
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig('stakeholder_coverage.png')
+        plt.close()
 
     # Risk Type Chart
-    risk_types = list(set(covered_types).union(missed_types))
+    risk_types = sorted(set(covered_types + missed_types))
     covered_counts = [covered_types.count(t) for t in risk_types]
     missed_counts = [missed_types.count(t) for t in risk_types]
+    non_zero_indices = [i for i, (c, m) in enumerate(zip(covered_counts, missed_counts)) if c > 0 or m > 0]
+    risk_types = [risk_types[i] for i in non_zero_indices]
+    covered_counts = [covered_counts[i] for i in non_zero_indices]
+    missed_counts = [missed_counts[i] for i in non_zero_indices]
     
-    plt.figure(figsize=(6, 4))
-    x = np.arange(len(risk_types))
-    plt.bar(x - 0.2, covered_counts, 0.4, label='Covered', color='green')
-    plt.bar(x + 0.2, missed_counts, 0.4, label='Missed', color='red')
-    plt.xlabel('Risk Types')
-    plt.ylabel('Number of Risks')
-    plt.title('Risk Coverage by Risk Type')
-    plt.xticks(x, risk_types, rotation=45, ha='right')
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig('risk_type_coverage.png')
-    plt.close()
+    if risk_types:
+        plt.figure(figsize=(6, 4))
+        x = np.arange(len(risk_types))
+        plt.bar(x - 0.2, covered_counts, 0.4, label='Covered', color='#2ecc71')
+        plt.bar(x + 0.2, missed_counts, 0.4, label='Missed', color='#e74c3c')
+        plt.xlabel('Risk Types')
+        plt.ylabel('Number of Risks')
+        plt.title('Risk Type Coverage Gaps')
+        plt.xticks(x, risk_types, rotation=45, ha='right')
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig('risk_type_coverage.png')
+        plt.close()
 
     # Cluster Chart
-    clusters = list(set(covered_clusters).union(missed_clusters))
+    clusters = sorted(set(covered_clusters + missed_clusters))
     covered_counts = [covered_clusters.count(c) for c in clusters]
     missed_counts = [missed_clusters.count(c) for c in clusters]
+    non_zero_indices = [i for i, (c, m) in enumerate(zip(covered_counts, missed_counts)) if c > 0 or m > 0]
+    clusters = [clusters[i] for i in non_zero_indices]
+    covered_counts = [covered_counts[i] for i in non_zero_indices]
+    missed_counts = [missed_counts[i] for i in non_zero_indices]
     
-    plt.figure(figsize=(6, 4))
-    x = np.arange(len(clusters))
-    plt.bar(x - 0.2, covered_counts, 0.4, label='Covered', color='green')
-    plt.bar(x + 0.2, missed_counts, 0.4, label='Missed', color='red')
-    plt.xlabel('Clusters')
-    plt.ylabel('Number of Risks')
-    plt.title('Risk Coverage by Cluster')
-    plt.xticks(x, [f"Cluster {c}" for c in clusters], rotation=45, ha='right')
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig('cluster_coverage.png')
-    plt.close()
+    if clusters:
+        plt.figure(figsize=(6, 4))
+        x = np.arange(len(clusters))
+        plt.bar(x - 0.2, covered_counts, 0.4, label='Covered', color='#2ecc71')
+        plt.bar(x + 0.2, missed_counts, 0.4, label='Missed', color='#e74c3c')
+        plt.xlabel('Clusters')
+        plt.ylabel('Number of Risks')
+        plt.title('Cluster Coverage Gaps')
+        plt.xticks(x, [f"Cluster {c}" for c in clusters], rotation=45, ha='right')
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig('cluster_coverage.png')
+        plt.close()
 
 # --- OAuth Functions ---
 def get_authorization_url():
@@ -153,7 +162,7 @@ def get_authorization_url():
     return f"https://app.mural.co/api/public/v1/authorization/oauth2/?{urlencode(params)}"
 
 def exchange_code_for_token(code):
-    with st.spinner("Exchanging OAuth code for token..."):
+    with st.spinner("Authenticating with Mural..."):
         url = "https://app.mural.co/api/public/v1/authorization/oauth2/token"
         data = {
             "client_id": MURAL_CLIENT_ID,
@@ -167,14 +176,14 @@ def exchange_code_for_token(code):
             if response.status_code == 200:
                 return response.json()
             else:
-                st.error(f"Failed to authenticate with Mural: {response.status_code}")
+                st.error(f"Authentication failed: {response.status_code}")
                 return None
         except Exception as e:
-            st.error(f"Error authenticating with Mural: {str(e)}")
+            st.error(f"Authentication error: {str(e)}")
             return None
 
 def refresh_access_token(refresh_token):
-    with st.spinner("Refreshing OAuth token..."):
+    with st.spinner("Refreshing Mural token..."):
         url = "https://app.mural.co/api/public/v1/authorization/oauth2/token"
         data = {
             "client_id": MURAL_CLIENT_ID,
@@ -187,10 +196,10 @@ def refresh_access_token(refresh_token):
             if response.status_code == 200:
                 return response.json()
             else:
-                st.error(f"Failed to refresh token: {response.status_code}")
+                st.error(f"Token refresh failed: {response.status_code}")
                 return None
         except Exception as e:
-            st.error(f"Error refreshing token: {str(e)}")
+            st.error(f"Token refresh error: {str(e)}")
             return None
 
 # --- Mural API Functions ---
@@ -253,7 +262,7 @@ if auth_code and not st.session_state.access_token:
 if not st.session_state.access_token:
     auth_url = get_authorization_url()
     st.markdown(f"Please [authorize the app]({auth_url}) to access Mural.")
-    st.info("Click the link above, log into Mural, and authorize. You’ll be redirected back here.")
+    st.info("Click the link above, log into Mural, and authorize.")
     st.stop()
 
 if st.session_state.access_token:
@@ -307,8 +316,8 @@ with st.sidebar:
                 st.write("Available Murals:", [{"id": m["id"], "title": m.get("title", "Untitled")} for m in murals])
             else:
                 st.warning("No murals found.")
-    if st.button("🔄 Pull Sticky Notes from Mural"):
-        with st.spinner("Pulling sticky notes from Mural..."):
+    if st.button("🔄 Pull Sticky Notes"):
+        with st.spinner("Pulling sticky notes..."):
             try:
                 headers = {'Authorization': f'Bearer {st.session_state.access_token}'}
                 mural_id = custom_mural_id or MURAL_BOARD_ID
@@ -333,50 +342,50 @@ with st.sidebar:
                             if cleaned_text:
                                 stickies.append(cleaned_text)
                     st.session_state['mural_notes'] = stickies
-                    st.success(f"Pulled {len(stickies)} sticky notes from Mural.")
+                    st.success(f"Pulled {len(stickies)} sticky notes.")
                 else:
-                    st.error(f"Failed to pull from Mural: {mural_data.status_code}")
+                    st.error(f"Failed to pull sticky notes: {mural_data.status_code}")
                     if mural_data.status_code == 401:
                         st.warning("OAuth token invalid. Please re-authenticate.")
                         st.session_state.access_token = None
                         auth_url = get_authorization_url()
                         st.markdown(f"[Re-authorize the app]({auth_url}).")
                     elif mural_data.status_code == 403:
-                        st.warning("Access denied. Ensure your account is a collaborator.")
+                        st.warning("Access denied. Ensure collaborator access.")
                     elif mural_data.status_code == 404:
                         st.warning(f"Mural ID {mural_id} not found.")
             except Exception as e:
                 st.error(f"Error connecting to Mural: {str(e)}")
-    if st.button("🗑️ Clear Session State"):
+    if st.button("🗑️ Clear Session"):
         st.session_state.clear()
         st.rerun()
 
 # --- Section 1: Input Risks ---
 st.subheader("1️⃣ Input Risks")
-st.write("Paste risks from Mural or edit below to analyze coverage.")
+st.write("Enter risks from Mural or edit below to analyze coverage.")
 default_notes = st.session_state.get('mural_notes', [])
 default_text = "\n".join(default_notes) if default_notes else ""
 user_input = st.text_area("", value=default_text, height=200, placeholder="Enter risks, one per line.")
 
 # --- Section 2: Generate Feedback ---
-st.subheader("2️⃣ Generate Feedback on Risk Coverage")
-st.write("Generate AI-driven feedback to identify coverage gaps.")
+st.subheader("2️⃣ Generate Feedback")
+st.write("Analyze risk coverage and identify gaps.")
 num_missed_risks = st.slider("Number of Missed Risks to Show", 1, 5, 5)
 if st.button("🔍 Generate Feedback"):
-    with st.spinner("Generating feedback..."):
+    with st.spinner("Analyzing risks..."):
         if user_input.strip():
             human_risks = [r.strip() for r in user_input.split('\n') if r.strip()]
             human_embeddings = np.array(embedder.encode(human_risks))
-            distances, indices = index.search(human_embeddings, 5)  # Use top_k=5 internally
+            distances, indices = index.search(human_embeddings, 5)
             similar_risks = [df.iloc[idx].to_dict('records') for idx in indices]
 
             covered_clusters = {r['cluster'] for group in similar_risks for r in group}
             covered_types = {r['risk_type'] for group in similar_risks for r in group}
             covered_stakeholders = {r['stakeholder'] for group in similar_risks for r in group}
 
-            missed_clusters = set(df['cluster']) - covered_clusters
-            missed_types = set(df['risk_type']) - covered_types
-            missed_stakeholders = set(df['stakeholder']) - covered_stakeholders
+            missed_clusters = sorted(list(set(df['cluster']) - covered_clusters))
+            missed_types = sorted(list(set(df['risk_type']) - covered_types))
+            missed_stakeholders = sorted(list(set(df['stakeholder']) - covered_stakeholders))
 
             top_missed = df[(df['severity'] >= severity_threshold) & (~df['cluster'].isin(covered_clusters))]
             top_missed = top_missed.sort_values(by='combined_score', ascending=False).head(num_missed_risks)
@@ -403,12 +412,7 @@ if st.button("🔍 Generate Feedback"):
                     ]
                 )
                 feedback = response.choices[0].message.content
-                st.markdown("### 🧠 Feedback:")
-                st.markdown(feedback)
-
-                st.session_state['missed_risks'] = top_missed.to_dict(orient='records')
-                st.session_state['feedback'] = feedback
-
+                
                 # Prepare data for coverage charts
                 covered_stakeholder_list = [r['stakeholder'] for group in similar_risks for r in group]
                 covered_type_list = [r['risk_type'] for group in similar_risks for r in group]
@@ -423,27 +427,46 @@ if st.button("🔍 Generate Feedback"):
                     covered_cluster_list, missed_cluster_list
                 )
 
+                st.session_state['missed_risks'] = top_missed.to_dict(orient='records')
+                st.session_state['feedback'] = feedback
+                st.session_state['coverage_data'] = {
+                    'covered_stakeholders': covered_stakeholder_list,
+                    'missed_stakeholders': missed_stakeholder_list,
+                    'covered_types': covered_type_list,
+                    'missed_types': missed_type_list,
+                    'covered_clusters': covered_cluster_list,
+                    'missed_clusters': missed_cluster_list
+                }
+
             except Exception as e:
                 st.error(f"OpenAI API error: {str(e)}")
         else:
-            st.warning("Please enter or pull some risk input first.")
+            st.warning("Please enter or pull some risks first.")
 
 # --- Section 3: Coverage Visualization ---
-if 'missed_risks' in st.session_state:
+if 'coverage_data' in st.session_state:
     st.subheader("3️⃣ Coverage Visualization")
-    st.write("Visualize gaps in risk coverage across stakeholders, risk types, and clusters.")
+    st.write("View gaps in risk coverage to identify weaknesses.")
     col1, col2, col3 = st.columns(3)
-    with col1:
-        st.image("stakeholder_coverage.png", caption="Stakeholder Coverage", use_column_width=True)
-    with col2:
-        st.image("risk_type_coverage.png", caption="Risk Type Coverage", use_column_width=True)
-    with col3:
-        st.image("cluster_coverage.png", caption="Cluster Coverage", use_column_width=True)
+    try:
+        with col1:
+            st.image("stakeholder_coverage.png", caption="Stakeholder Gaps", use_column_width=True)
+        with col2:
+            st.image("risk_type_coverage.png", caption="Risk Type Gaps", use_column_width=True)
+        with col3:
+            st.image("cluster_coverage.png", caption="Cluster Gaps", use_column_width=True)
+    except FileNotFoundError:
+        st.error("Coverage charts failed to generate. Please try generating feedback again.")
 
-# --- Section 4: Review Suggested Risks ---
-if 'missed_risks' in st.session_state:
-    st.subheader("4️⃣ Review Suggested Risks")
-    st.write("Review AI-suggested risks. Give a thumbs-up if you agree (copy to Mural manually), or thumbs-down with a reason if you disagree.")
+# --- Section 4: Feedback and Suggested Risks ---
+if 'feedback' in st.session_state:
+    st.subheader("4️⃣ Feedback and Suggested Risks")
+    st.write("Review AI feedback and suggested risks to improve coverage.")
+    st.markdown("### Feedback:")
+    st.markdown(st.session_state['feedback'])
+    
+    st.markdown("### Suggested Risks:")
+    st.write("Vote on AI-suggested risks. Agree to add manually to Mural, or disagree with a reason.")
     
     for idx, risk in enumerate(st.session_state['missed_risks']):
         risk_key = f"risk_{idx}"
@@ -455,26 +478,26 @@ if 'missed_risks' in st.session_state:
         with col1:
             if st.button("👍 Agree", key=f"agree_{risk_key}"):
                 log_feedback(risk['risk_description'], "agree")
-                st.success("Thanks for your feedback! You can copy this risk and manually add it to Mural.")
+                st.success("Thanks! Copy this risk to add it to Mural manually.")
         with col2:
             if st.button("👎 Disagree", key=f"disagree_{risk_key}"):
                 st.session_state[f"show_disagree_{risk_key}"] = True
         
         if st.session_state.get(f"show_disagree_{risk_key}", False):
             with st.form(key=f"disagree_form_{risk_key}"):
-                disagreement_reason = st.text_area("Why do you disagree with this risk?", key=f"reason_{risk_key}", height=100)
-                if st.form_submit_button("Submit Reason"):
+                disagreement_reason = st.text_area("Why do you disagree?", key=f"reason_{risk_key}", height=100)
+                if st.form_submit_button("Submit"):
                     if disagreement_reason.strip():
                         log_feedback(risk['risk_description'], "disagree", disagreement_reason)
-                        st.success("Disagreement noted. Thank you for your feedback!")
+                        st.success("Disagreement noted. Thanks for your input!")
                         st.session_state[f"show_disagree_{risk_key}"] = False
                     else:
-                        st.error("Please provide a reason for disagreement.")
+                        st.error("Please provide a reason.")
 
 # --- Section 5: Brainstorming Assistant ---
-st.subheader("5️⃣ Brainstorm with AI")
-st.write("Generate creative risk suggestions based on your criteria.")
-num_brainstorm_risks = st.slider("Number of Brainstorm Suggestions", 1, 5, 5)
+st.subheader("5️⃣ Brainstorm Risks")
+st.write("Generate creative risk ideas based on your criteria.")
+num_brainstorm_risks = st.slider("Number of Suggestions", 1, 5, 5)
 stakeholder_options = sorted(df['stakeholder'].dropna().unique())
 risk_type_options = sorted(df['risk_type'].dropna().unique())
 
@@ -484,8 +507,8 @@ with col1:
 with col2:
     risk_type = st.selectbox("Target Risk Type (optional):", ["Any"] + risk_type_options)
 
-if st.button("💡 Suggest AI-Generated Risks"):
-    with st.spinner("Generating suggestions..."):
+if st.button("💡 Generate Suggestions"):
+    with st.spinner("Generating ideas..."):
         filt = df.copy()
         if stakeholder != "Any":
             filt = filt[filt['stakeholder'] == stakeholder]
@@ -496,22 +519,22 @@ if st.button("💡 Suggest AI-Generated Risks"):
         suggestions = "\n".join(f"- {r}" for r in top_suggestions['risk_description'].tolist())
 
         prompt = f"""
-        Generate brainstorming risk suggestions for an AI deployment based on these:
+        Generate {num_brainstorm_risks} creative risk suggestions for an AI deployment based on these:
         {suggestions}
 
-        Phrase them as creative suggestions to help a human identify overlooked risks.
+        Phrase them to help identify overlooked risks.
         """
 
         try:
             result = openai_client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "You are an AI brainstorming assistant for strategic risk workshops."},
+                    {"role": "system", "content": "You are an AI brainstorming assistant for risk workshops."},
                     {"role": "user", "content": prompt}
                 ]
             )
             brainstorm_output = result.choices[0].message.content
-            st.markdown("### 🧠 Brainstorm Suggestions:")
+            st.markdown("### Brainstorm Suggestions:")
             st.markdown(brainstorm_output)
         except Exception as e:
             st.error(f"OpenAI API error: {str(e)}")
