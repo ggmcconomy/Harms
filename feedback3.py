@@ -307,6 +307,10 @@ try:
     for col in numeric_columns:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
+            # Log any non-numeric values before conversion
+            if df[col].isna().any():
+                non_numeric = df[df[col].isna()][col].index
+                st.warning(f"Non-numeric values found in {col} at rows: {non_numeric.tolist()}. Converted to NaN.")
 except FileNotFoundError:
     st.error(f"Clustered CSV {csv_file} not found. Please run generate_clustered_files.py first.")
     st.stop()
