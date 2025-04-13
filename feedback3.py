@@ -408,34 +408,38 @@ if st.button("🔍 Generate Feedback"):
                     ]
                 )
                 feedback = response.choices[0].message.content
-                
-                # Prepare data for coverage charts
-                covered_stakeholder_list = [r['stakeholder'] for group in similar_risks for r in group]
-                covered_type_list = [r['risk_type'] for group in similar_risks for r in group]
-                covered_cluster_list = [r['cluster'] for group in similar_risks for r in group]
-                missed_stakeholder_list = top_missed['stakeholder'].tolist()
-                missed_type_list = top_missed['risk_type'].tolist()
-                missed_cluster_list = top_missed['cluster'].tolist()
-
-                create_coverage_charts(
-                    covered_stakeholder_list, missed_stakeholder_list,
-                    covered_type_list, missed_type_list,
-                    covered_cluster_list, missed_cluster_list
-                )
-
-                st.session_state['missed_risks'] = top_missed.to_dict(orient='records')
-                st.session_state['feedback'] = feedback
-                st.session_state['coverage_data'] = {
-                    'covered_stakeholders': covered_stakeholder_list,
-                    'missed_stakeholders': missed_stakeholder_list,
-                    'covered_types': covered_type_list,
-                    'missed_types': missed_type_list,
-                    'covered_clusters': bitcastaditya_cluster_list,
-                    'missed_clusters': missed_cluster_list
-                }
-
             except Exception as e:
                 st.error(f"OpenAI API error: {str(e)}")
+                feedback = None
+
+            if feedback:
+                try:
+                    # Prepare data for coverage charts
+                    covered_stakeholder_list = [r['stakeholder'] for group in similar_risks for r in group]
+                    covered_type_list = [r['risk_type'] for group in similar_risks for r in group]
+                    covered_cluster_list = [r['cluster'] for group in similar_risks for r in group]
+                    missed_stakeholder_list = top_missed['stakeholder'].tolist()
+                    missed_type_list = top_missed['risk_type'].tolist()
+                    missed_cluster_list = top_missed['cluster'].tolist()
+
+                    create_coverage_charts(
+                        covered_stakeholder_list, missed_stakeholder_list,
+                        covered_type_list, missed_type_list,
+                        covered_cluster_list, missed_cluster_list
+                    )
+
+                    st.session_state['missed_risks'] = top_missed.to_dict(orient='records')
+                    st.session_state['feedback'] = feedback
+                    st.session_state['coverage_data'] = {
+                        'covered_stakeholders': covered_stakeholder_list,
+                        'missed_stakeholders': missed_stakeholder_list,
+                        'covered_types': covered_type_list,
+                        'missed_types': missed_type_list,
+                        'covered_clusters': covered_cluster_list,
+                        'missed_clusters': missed_cluster_list
+                    }
+                except Exception as e:
+                    st.error(f"Error processing feedback or charts: {str(e)}")
         else:
             st.warning("Please enter or pull some risks first.")
 
