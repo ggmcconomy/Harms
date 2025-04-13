@@ -9,6 +9,7 @@ import sys
 from urllib3.util.retry import Retry
 from requests.adapters import HTTPAdapter
 from urllib.parse import urlencode
+from bs4 import BeautifulSoup
 
 # Temporarily disable torch.classes to avoid Streamlit watcher error
 sys.modules['torch.classes'] = None
@@ -54,6 +55,14 @@ def denormalize_mural_id(mural_id, workspace_id=MURAL_WORKSPACE_ID):
     if not mural_id.startswith(prefix):
         return f"{prefix}{mural_id}"
     return mural_id
+
+def clean_html_text(html_text):
+    """Strip HTML tags and clean text."""
+    if not html_text:
+        return ""
+    soup = BeautifulSoup(html_text, "html.parser")
+    text = soup.get_text(separator=" ").strip()
+    return text
 
 # --- OAuth Functions ---
 def get_authorization_url():
@@ -158,7 +167,7 @@ def create_mural(auth_token, workspace_id, room_id=1740767942646471, title="Test
         if response.status_code == 200:
             mural_id = response.json().get("id")
             st.write("Debug: Created Mural ID:", mural_id)
-            return mural_id  # Return full ID
+            return mural_id
         else:
             st.error(f"Failed to create mural: {response.status_code} - {response.text}")
             return None
@@ -297,10 +306,18 @@ with st.sidebar:
                 st.write("Debug: Status Code:", mural_data.status_code)
                 st.write("Debug: Full API Response:", mural_data.json())
                 if mural_data.status_code == 200:
-                    widgets = mural_data.json().get("data", [])
+                    widgets = mural_data.json().get("value", [])
                     st.write("Debug: Total Widgets:", len(widgets))
-                    st.write("Debug: Sticky Notes:", [w for w in widgets if w.get('type') == 'sticky_note'])
-                    stickies = [w.get('text', '') for w in widgets if w.get('type') == 'sticky_note' and w.get('text')]
+                    sticky_widgets = [w for w in widgets if w.get('type') == 'sticky_note']
+                    st.write("Debug: Sticky Notes:", sticky_widgets)
+                    stickies = []
+                    for w in sticky_widgets:
+                        # Try htmlText first, fallback to text
+                        text = w.get('htmlText') or w.get('text', '')
+                        if text:
+                            cleaned_text = clean_html_text(text)
+                            if cleaned_text:
+                                stickies.append(cleaned_text)
                     st.write("Debug: Extracted Stickies:", stickies)
                     st.session_state['mural_notes'] = stickies
                     st.write("Debug: mural_notes in session state:", st.session_state['mural_notes'])
