@@ -10,6 +10,7 @@ from urllib3.util.retry import Retry
 from requests.adapters import HTTPAdapter
 from urllib.parse import urlencode
 from bs4 import BeautifulSoup
+from datetime import datetime
 
 # Temporarily disable torch.classes to avoid Streamlit watcher error
 sys.modules['torch.classes'] = None
@@ -67,6 +68,25 @@ def clean_html_text(html_text):
     except Exception as e:
         st.write("Debug: Error cleaning HTML:", str(e))
         return ""
+
+def log_feedback(risk_description, user_feedback, disagreement_reason=""):
+    """Log user feedback to CSV."""
+    feedback_data = {
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "risk_description": risk_description,
+        "user_feedback": user_feedback,
+        "disagreement_reason": disagreement_reason
+    }
+    feedback_df = pd.DataFrame([feedback_data])
+    feedback_file = "feedback_log.csv"
+    try:
+        if os.path.exists(feedback_file):
+            existing_df = pd.read_csv(feedback_file)
+            feedback_df = pd.concat([existing_df, feedback_df], ignore_index=True)
+        feedback_df.to_csv(feedback_file, index=False)
+        st.write("Debug: Feedback logged to feedback_log.csv")
+    except Exception as e:
+        st.write("Debug: Error logging feedback:", str(e))
 
 # --- OAuth Functions ---
 def get_authorization_url():
@@ -408,75 +428,36 @@ if st.button("🔍 Generate Feedback"):
         else:
             st.warning("Please enter or pull some risk input first.")
 
-# --- Section 3: Post Missed Risks to Mural ---
+# --- Section 3: Review Suggested Risks ---
 if 'missed_risks' in st.session_state:
-    st.subheader("3️⃣ Post Missed Risks to Mural")
-    if "posted_count" not in st.session_state:
-        st.session_state.posted_count = 0
-
-    if st.button("📝 Post Next AI Suggestion to Mural"):
-        with st.spinner("Posting to Mural..."):
-            missed_risks = st.session_state['missed_risks']
-            idx = st.session_state.posted_count
-            if idx < len(missed_risks):
-                risk = missed_risks[idx]
-                # Ultra-minimal payload
-                payload = {
-                    "text": "Test Sticky Note",
-                    "type": "sticky note"
-                }
-                headers = {
-                    'Authorization': f'Bearer {st.session_state.access_token}',
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                }
-                # Prioritize temp_mural_id for posting
-                mural_id = st.session_state.get('temp_mural_id', custom_mural_id or MURAL_BOARD_ID)
-                # Verify mural before posting
-                st.write("Debug: Verifying mural ID:", mural_id)
-                if not verify_mural(st.session_state.access_token, mural_id):
-                    st.warning(f"Mural {mural_id} not accessible.")
-                st.write("Debug: Trying POST with mural ID:", mural_id)
-                url = f"https://app.mural.co/api/public/v1/murals/{mural_id}/stickynote"
-                try:
-                    session = requests.Session()
-                    retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
-                    session.mount('https://', HTTPAdapter(max_retries=retries))
-                    st.write("Debug: POST Headers:", headers)
-                    st.write("Debug: POST Payload:", payload)
-                    res = session.post(url, headers=headers, json=payload)
-                    st.write("Debug: Post response (/stickynote):", res.status_code, res.json())
-                    if res.status_code in [200, 201]:
-                        st.success(f"Posted: {risk['risk_description'][:50]}...")
-                        st.session_state.posted_count += 1
+    st.subheader("3️⃣ Review Suggested Risks")
+    st.write("Review the AI-suggested risks below. Give a thumbs-up if you agree (you can manually add it to Mural), or thumbs-down with a reason if you disagree.")
+    
+    for idx, risk in enumerate(st.session_state['missed_risks']):
+        risk_key = f"risk_{idx}"
+        short_text = risk['risk_description'][:200] + ("..." if len(risk['risk_description']) > 200 else "")
+        
+        st.markdown(f"**Risk {idx + 1}:** {short_text}")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("👍 Agree", key=f"agree_{risk_key}"):
+                log_feedback(risk['risk_description'], "agree")
+                st.success("Thanks for your feedback! You can copy this risk and manually add it to Mural.")
+        with col2:
+            if st.button("👎 Disagree", key=f"disagree_{risk_key}"):
+                st.session_state[f"show_disagree_{risk_key}"] = True
+        
+        if st.session_state.get(f"show_disagree_{risk_key}", False):
+            with st.form(key=f"disagree_form_{risk_key}"):
+                disagreement_reason = st.text_area("Why do you disagree with this risk?", key=f"reason_{risk_key}", height=100)
+                if st.form_submit_button("Submit Reason"):
+                    if disagreement_reason.strip():
+                        log_feedback(risk['risk_description'], "disagree", disagreement_reason)
+                        st.success("Disagreement noted. Thank you for your feedback!")
+                        st.session_state[f"show_disagree_{risk_key}"] = False
                     else:
-                        st.error(f"Error posting to Mural (/stickynote): {res.status_code} - {res.text}")
-                        st.warning("Sticky note creation failed. You may need to manually add the risk to Mural or contact support@mural.co.")
-                        # Try numeric ID
-                        numeric_id = normalize_mural_id(mural_id)
-                        st.write("Debug: Trying POST with numeric mural ID:", numeric_id)
-                        url = f"https://app.mural.co/api/public/v1/murals/{numeric_id}/stickynote"
-                        res = session.post(url, headers=headers, json=payload)
-                        st.write("Debug: Post response (numeric ID, /stickynote):", res.status_code, res.json())
-                        if res.status_code in [200, 201]:
-                            st.success(f"Posted: {risk['risk_description'][:50]}...")
-                            st.session_state.posted_count += 1
-                        else:
-                            st.error(f"Error posting to Mural (numeric ID, /stickynote): {res.status_code} - {res.text}")
-                            if res.status_code == 401:
-                                st.warning("OAuth token invalid. Please re-authenticate.")
-                                st.session_state.access_token = None
-                                auth_url = get_authorization_url()
-                                st.markdown(f"[Re-authorize the app]({auth_url}).")
-                            elif res.status_code == 403:
-                                st.warning("Access denied for posting. Ensure collaborator status.")
-                            elif res.status_code == 404:
-                                st.warning(f"Mural ID {numeric_id} not found. Try creating a new mural.")
-                        st.write("Raw post response:", res.json())
-                except Exception as e:
-                    st.error(f"Error posting to Mural: {str(e)}")
-            else:
-                st.info("✅ All missed risks posted.")
+                        st.error("Please provide a reason for disagreement.")
 
 # --- Section 4: Brainstorming Assistant ---
 st.subheader("4️⃣ Brainstorm with AI")
