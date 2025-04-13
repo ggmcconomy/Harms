@@ -11,6 +11,7 @@ from requests.adapters import HTTPAdapter
 from urllib.parse import urlencode
 from bs4 import BeautifulSoup
 from datetime import datetime
+import matplotlib.pyplot as plt
 
 # Temporarily disable torch.classes to avoid Streamlit watcher error
 sys.modules['torch.classes'] = None
@@ -21,9 +22,6 @@ from openai import OpenAI
 # --- Configuration ---
 st.set_page_config(page_title="AI Risk Feedback & Brainstorming", layout="wide")
 st.title("🤖 AI-Powered Risk Analysis and Brainstorming for Mural")
-
-st.text("Starting app...")
-st.write("Debug: All session state keys:", list(st.session_state.keys()))
 
 # Load secrets
 try:
@@ -36,11 +34,9 @@ try:
 except KeyError as e:
     st.error(f"Missing secret: {e}. Please configure secrets in .streamlit/secrets.toml.")
     st.stop()
-st.text("Secrets loaded.")
 
 # Initialize OpenAI client
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
-st.text("OpenAI client ready.")
 
 # --- Utility Functions ---
 def normalize_mural_id(mural_id, workspace_id=MURAL_WORKSPACE_ID):
@@ -66,7 +62,7 @@ def clean_html_text(html_text):
         text = soup.get_text(separator=" ").strip()
         return text if text else ""
     except Exception as e:
-        st.write("Debug: Error cleaning HTML:", str(e))
+        st.error(f"Error cleaning HTML: {str(e)}")
         return ""
 
 def log_feedback(risk_description, user_feedback, disagreement_reason=""):
@@ -84,9 +80,66 @@ def log_feedback(risk_description, user_feedback, disagreement_reason=""):
             existing_df = pd.read_csv(feedback_file)
             feedback_df = pd.concat([existing_df, feedback_df], ignore_index=True)
         feedback_df.to_csv(feedback_file, index=False)
-        st.write("Debug: Feedback logged to feedback_log.csv")
     except Exception as e:
-        st.write("Debug: Error logging feedback:", str(e))
+        st.error(f"Error logging feedback: {str(e)}")
+
+def create_coverage_charts(covered_stakeholders, missed_stakeholders, covered_types, missed_types, covered_clusters, missed_clusters):
+    """Create bar charts for coverage visualization."""
+    plt.style.use('seaborn')
+
+    # Stakeholder Chart
+    stakeholders = list(set(covered_stakeholders).union(missed_stakeholders))
+    covered_counts = [covered_stakeholders.count(s) for s in stakeholders]
+    missed_counts = [missed_stakeholders.count(s) for s in stakeholders]
+    
+    plt.figure(figsize=(6, 4))
+    x = np.arange(len(stakeholders))
+    plt.bar(x - 0.2, covered_counts, 0.4, label='Covered', color='green')
+    plt.bar(x + 0.2, missed_counts, 0.4, label='Missed', color='red')
+    plt.xlabel('Stakeholders')
+    plt.ylabel('Number of Risks')
+    plt.title('Risk Coverage by Stakeholder')
+    plt.xticks(x, stakeholders, rotation=45, ha='right')
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig('stakeholder_coverage.png')
+    plt.close()
+
+    # Risk Type Chart
+    risk_types = list(set(covered_types).union(missed_types))
+    covered_counts = [covered_types.count(t) for t in risk_types]
+    missed_counts = [missed_types.count(t) for t in risk_types]
+    
+    plt.figure(figsize=(6, 4))
+    x = np.arange(len(risk_types))
+    plt.bar(x - 0.2, covered_counts, 0.4, label='Covered', color='green')
+    plt.bar(x + 0.2, missed_counts, 0.4, label='Missed', color='red')
+    plt.xlabel('Risk Types')
+    plt.ylabel('Number of Risks')
+    plt.title('Risk Coverage by Risk Type')
+    plt.xticks(x, risk_types, rotation=45, ha='right')
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig('risk_type_coverage.png')
+    plt.close()
+
+    # Cluster Chart
+    clusters = list(set(covered_clusters).union(missed_clusters))
+    covered_counts = [covered_clusters.count(c) for c in clusters]
+    missed_counts = [missed_clusters.count(c) for c in clusters]
+    
+    plt.figure(figsize=(6, 4))
+    x = np.arange(len(clusters))
+    plt.bar(x - 0.2, covered_counts, 0.4, label='Covered', color='green')
+    plt.bar(x + 0.2, missed_counts, 0.4, label='Missed', color='red')
+    plt.xlabel('Clusters')
+    plt.ylabel('Number of Risks')
+    plt.title('Risk Coverage by Cluster')
+    plt.xticks(x, [f"Cluster {c}" for c in clusters], rotation=45, ha='right')
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig('cluster_coverage.png')
+    plt.close()
 
 # --- OAuth Functions ---
 def get_authorization_url():
@@ -101,7 +154,6 @@ def get_authorization_url():
 
 def exchange_code_for_token(code):
     with st.spinner("Exchanging OAuth code for token..."):
-        st.text("Contacting Mural OAuth server...")
         url = "https://app.mural.co/api/public/v1/authorization/oauth2/token"
         data = {
             "client_id": MURAL_CLIENT_ID,
@@ -113,20 +165,16 @@ def exchange_code_for_token(code):
         try:
             response = requests.post(url, data=data, timeout=10)
             if response.status_code == 200:
-                st.text("Token received.")
-                token_data = response.json()
-                st.write("Debug: OAuth Scopes:", token_data.get('scope', 'Not set'))
-                return token_data
+                return response.json()
             else:
-                st.error(f"Failed to exchange code: {response.status_code} - {response.text}")
+                st.error(f"Failed to authenticate with Mural: {response.status_code}")
                 return None
         except Exception as e:
-            st.error(f"Error exchanging code: {str(e)}")
+            st.error(f"Error authenticating with Mural: {str(e)}")
             return None
 
 def refresh_access_token(refresh_token):
     with st.spinner("Refreshing OAuth token..."):
-        st.text("Refreshing token...")
         url = "https://app.mural.co/api/public/v1/authorization/oauth2/token"
         data = {
             "client_id": MURAL_CLIENT_ID,
@@ -137,12 +185,9 @@ def refresh_access_token(refresh_token):
         try:
             response = requests.post(url, data=data, timeout=10)
             if response.status_code == 200:
-                st.text("Token refreshed.")
-                token_data = response.json()
-                st.write("Debug: OAuth Scopes (refreshed):", token_data.get('scope', 'Not set'))
-                return token_data
+                return response.json()
             else:
-                st.error(f"Failed to refresh token: {response.status_code} - {response.text}")
+                st.error(f"Failed to refresh token: {response.status_code}")
                 return None
         except Exception as e:
             st.error(f"Error refreshing token: {str(e)}")
@@ -160,48 +205,14 @@ def list_murals(auth_token):
         retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
         session.mount('https://', HTTPAdapter(max_retries=retries))
         response = session.get(url, headers=headers, timeout=10)
-        st.write("Debug: List Murals Status Code:", response.status_code)
-        st.write("Debug: List Murals Raw Response:", response.text)
         if response.status_code == 200:
-            murals = response.json().get("value", [])
-            st.write("Debug: Parsed Murals:", murals)
-            return murals
+            return response.json().get("value", [])
         else:
-            st.error(f"Failed to list murals: {response.status_code} - {response.text}")
+            st.error(f"Failed to list murals: {response.status_code}")
             return []
     except Exception as e:
         st.error(f"Error listing murals: {str(e)}")
         return []
-
-def create_mural(auth_token, workspace_id, room_id=1740767942646471, title="Test Risk Mural"):
-    url = "https://app.mural.co/api/public/v1/murals"
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {auth_token}"
-    }
-    payload = {
-        "workspaceId": workspace_id,
-        "roomId": int(room_id),
-        "title": title
-    }
-    try:
-        session = requests.Session()
-        retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
-        session.mount('https://', HTTPAdapter(max_retries=retries))
-        response = session.post(url, headers=headers, json=payload, timeout=10)
-        st.write("Debug: Create Mural Status Code:", response.status_code)
-        st.write("Debug: Create Mural Response:", response.text)
-        if response.status_code in [200, 201]:
-            mural_id = response.json().get("value", {}).get("id")
-            st.write("Debug: Created Mural ID:", mural_id)
-            return mural_id
-        else:
-            st.error(f"Failed to create mural: {response.status_code} - {response.text}")
-            return None
-    except Exception as e:
-        st.error(f"Error creating mural: {str(e)}")
-        return None
 
 def verify_mural(auth_token, mural_id):
     url = f"https://app.mural.co/api/public/v1/murals/{mural_id}"
@@ -214,15 +225,12 @@ def verify_mural(auth_token, mural_id):
         retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
         session.mount('https://', HTTPAdapter(max_retries=retries))
         response = session.get(url, headers=headers, timeout=10)
-        st.write("Debug: Verify Mural Status Code:", response.status_code)
-        st.write("Debug: Verify Mural Response:", response.text)
         return response.status_code == 200
     except Exception as e:
-        st.write("Debug: Error verifying mural:", str(e))
+        st.error(f"Error verifying mural: {str(e)}")
         return False
 
 # --- Handle OAuth Flow ---
-st.text("Checking OAuth status...")
 if "access_token" not in st.session_state:
     st.session_state.access_token = None
     st.session_state.refresh_token = None
@@ -238,11 +246,11 @@ if auth_code and not st.session_state.access_token:
         st.session_state.refresh_token = token_data.get("refresh_token")
         st.session_state.token_expires_in = token_data.get("expires_in", 900)
         st.session_state.token_timestamp = pd.Timestamp.now().timestamp()
-        st.write("Debug: Access Token:", st.session_state.access_token[:10] + "...")
+        st.query_params.clear()
+        st.success("Authenticated with Mural!")
         st.rerun()
 
 if not st.session_state.access_token:
-    st.text("Waiting for Mural authentication...")
     auth_url = get_authorization_url()
     st.markdown(f"Please [authorize the app]({auth_url}) to access Mural.")
     st.info("Click the link above, log into Mural, and authorize. You’ll be redirected back here.")
@@ -257,10 +265,8 @@ if st.session_state.access_token:
             st.session_state.refresh_token = token_data.get("refresh_token", st.session_state.refresh_token)
             st.session_state.token_expires_in = token_data.get("expires_in", 900)
             st.session_state.token_timestamp = pd.Timestamp.now().timestamp()
-st.text("OAuth ready.")
 
 # --- Load Pre-Clustered Data ---
-st.text("Loading clustered dataset...")
 csv_file = 'AI-Powered_Valuation_Clustered.csv'
 embeddings_file = 'embeddings.npy'
 index_file = 'faiss_index.faiss'
@@ -284,16 +290,13 @@ except FileNotFoundError:
     st.stop()
 
 # Initialize embedder
-st.text("Loading SentenceTransformer...")
 embedder = SentenceTransformer('all-MiniLM-L6-v2')
-st.text("Dataset and models loaded.")
 
 # --- Sidebar Settings ---
 with st.sidebar:
     st.header("🔧 Settings")
     num_clusters = st.slider("Number of Clusters (Themes)", 5, 20, 10)
     severity_threshold = st.slider("Severity Threshold", 0.0, 5.0, 4.0, 0.5)
-    top_k = st.slider("Top Similar Risks to Retrieve", 1, 10, 5)
     st.markdown("---")
     st.subheader("📥 Mural Actions")
     custom_mural_id = st.text_input("Custom Mural ID (optional)", value=MURAL_BOARD_ID)
@@ -301,66 +304,47 @@ with st.sidebar:
         with st.spinner("Listing murals..."):
             murals = list_murals(st.session_state.access_token)
             if murals:
-                st.write("Available Murals:", [{"id": m["id"], "title": m.get("title", "Untitled"), "permissions": m.get("visitorsSettings", {})} for m in murals])
+                st.write("Available Murals:", [{"id": m["id"], "title": m.get("title", "Untitled")} for m in murals])
             else:
-                st.warning("No murals found or error occurred. Check debug output above.")
-    if st.button("🆕 Create Test Mural"):
-        with st.spinner("Creating test mural..."):
-            mural_id = create_mural(st.session_state.access_token, MURAL_WORKSPACE_ID)
-            if mural_id:
-                st.success(f"Created mural with ID: {mural_id}")
-                st.session_state['temp_mural_id'] = mural_id
+                st.warning("No murals found.")
     if st.button("🔄 Pull Sticky Notes from Mural"):
         with st.spinner("Pulling sticky notes from Mural..."):
             try:
                 headers = {'Authorization': f'Bearer {st.session_state.access_token}'}
-                mural_id = custom_mural_id or st.session_state.get('temp_mural_id', MURAL_BOARD_ID)
-                st.write("Debug: Trying mural ID:", mural_id)
+                mural_id = custom_mural_id or MURAL_BOARD_ID
                 if not verify_mural(st.session_state.access_token, mural_id):
-                    st.warning(f"Mural {mural_id} not found. Trying normalized ID...")
                     mural_id = normalize_mural_id(mural_id)
-                    st.write("Debug: Trying normalized mural ID:", mural_id)
+                    if not verify_mural(st.session_state.access_token, mural_id):
+                        st.error(f"Mural {mural_id} not found.")
+                        st.stop()
                 url = f"https://app.mural.co/api/public/v1/murals/{mural_id}/widgets"
                 session = requests.Session()
                 retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
                 session.mount('https://', HTTPAdapter(max_retries=retries))
-                st.write("Debug: API Headers:", headers)
                 mural_data = session.get(url, headers=headers, timeout=10)
-                st.write("Debug: Mural ID Used:", mural_id)
-                st.write("Debug: Status Code:", mural_data.status_code)
-                st.write("Debug: Full API Response:", mural_data.json())
                 if mural_data.status_code == 200:
                     widgets = mural_data.json().get("value", mural_data.json().get("data", []))
-                    st.write("Debug: Total Widgets:", len(widgets))
-                    widget_types = [w.get('type', 'unknown') for w in widgets]
-                    st.write("Debug: Widget Types:", widget_types)
                     sticky_widgets = [w for w in widgets if w.get('type', '').replace(' ', '_').lower() == 'sticky_note']
-                    st.write("Debug: Sticky Notes:", sticky_widgets)
                     stickies = []
                     for w in sticky_widgets:
                         raw_text = w.get('htmlText') or w.get('text') or ''
-                        st.write("Debug: Raw Sticky Text:", raw_text)
                         if raw_text:
                             cleaned_text = clean_html_text(raw_text)
-                            st.write("Debug: Cleaned Sticky Text:", cleaned_text)
                             if cleaned_text:
                                 stickies.append(cleaned_text)
-                    st.write("Debug: Extracted Stickies:", stickies)
                     st.session_state['mural_notes'] = stickies
-                    st.write("Debug: mural_notes in session state:", st.session_state['mural_notes'])
                     st.success(f"Pulled {len(stickies)} sticky notes from Mural.")
                 else:
-                    st.error(f"Failed to pull from Mural: {mural_data.status_code} - {mural_data.text}")
+                    st.error(f"Failed to pull from Mural: {mural_data.status_code}")
                     if mural_data.status_code == 401:
                         st.warning("OAuth token invalid. Please re-authenticate.")
                         st.session_state.access_token = None
                         auth_url = get_authorization_url()
                         st.markdown(f"[Re-authorize the app]({auth_url}).")
                     elif mural_data.status_code == 403:
-                        st.warning("Access denied. Ensure your account is a collaborator with write access.")
+                        st.warning("Access denied. Ensure your account is a collaborator.")
                     elif mural_data.status_code == 404:
-                        st.warning(f"Mural ID {mural_id} not found. Try creating a new mural or check permissions.")
-                    st.write("Raw API response:", mural_data.json())
+                        st.warning(f"Mural ID {mural_id} not found.")
             except Exception as e:
                 st.error(f"Error connecting to Mural: {str(e)}")
     if st.button("🗑️ Clear Session State"):
@@ -369,20 +353,21 @@ with st.sidebar:
 
 # --- Section 1: Input Risks ---
 st.subheader("1️⃣ Input Risks")
+st.write("Paste risks from Mural or edit below to analyze coverage.")
 default_notes = st.session_state.get('mural_notes', [])
 default_text = "\n".join(default_notes) if default_notes else ""
-st.write("Debug: default_notes:", default_notes)
-st.write("Debug: default_text:", default_text)
-user_input = st.text_area("Paste or edit your risks below:", value=default_text, height=200)
+user_input = st.text_area("", value=default_text, height=200, placeholder="Enter risks, one per line.")
 
 # --- Section 2: Generate Feedback ---
 st.subheader("2️⃣ Generate Feedback on Risk Coverage")
+st.write("Generate AI-driven feedback to identify coverage gaps.")
+num_missed_risks = st.slider("Number of Missed Risks to Show", 1, 5, 5)
 if st.button("🔍 Generate Feedback"):
     with st.spinner("Generating feedback..."):
         if user_input.strip():
             human_risks = [r.strip() for r in user_input.split('\n') if r.strip()]
             human_embeddings = np.array(embedder.encode(human_risks))
-            distances, indices = index.search(human_embeddings, top_k)
+            distances, indices = index.search(human_embeddings, 5)  # Use top_k=5 internally
             similar_risks = [df.iloc[idx].to_dict('records') for idx in indices]
 
             covered_clusters = {r['cluster'] for group in similar_risks for r in group}
@@ -394,7 +379,7 @@ if st.button("🔍 Generate Feedback"):
             missed_stakeholders = set(df['stakeholder']) - covered_stakeholders
 
             top_missed = df[(df['severity'] >= severity_threshold) & (~df['cluster'].isin(covered_clusters))]
-            top_missed = top_missed.sort_values(by='combined_score', ascending=False).head(5)
+            top_missed = top_missed.sort_values(by='combined_score', ascending=False).head(num_missed_risks)
 
             prompt = f"""
             You are an AI risk analysis expert. The user provided these risks: {', '.join(human_risks)}
@@ -423,15 +408,42 @@ if st.button("🔍 Generate Feedback"):
 
                 st.session_state['missed_risks'] = top_missed.to_dict(orient='records')
                 st.session_state['feedback'] = feedback
+
+                # Prepare data for coverage charts
+                covered_stakeholder_list = [r['stakeholder'] for group in similar_risks for r in group]
+                covered_type_list = [r['risk_type'] for group in similar_risks for r in group]
+                covered_cluster_list = [r['cluster'] for group in similar_risks for r in group]
+                missed_stakeholder_list = top_missed['stakeholder'].tolist()
+                missed_type_list = top_missed['risk_type'].tolist()
+                missed_cluster_list = top_missed['cluster'].tolist()
+
+                create_coverage_charts(
+                    covered_stakeholder_list, missed_stakeholder_list,
+                    covered_type_list, missed_type_list,
+                    covered_cluster_list, missed_cluster_list
+                )
+
             except Exception as e:
                 st.error(f"OpenAI API error: {str(e)}")
         else:
             st.warning("Please enter or pull some risk input first.")
 
-# --- Section 3: Review Suggested Risks ---
+# --- Section 3: Coverage Visualization ---
 if 'missed_risks' in st.session_state:
-    st.subheader("3️⃣ Review Suggested Risks")
-    st.write("Review the AI-suggested risks below. Give a thumbs-up if you agree (you can manually add it to Mural), or thumbs-down with a reason if you disagree.")
+    st.subheader("3️⃣ Coverage Visualization")
+    st.write("Visualize gaps in risk coverage across stakeholders, risk types, and clusters.")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.image("stakeholder_coverage.png", caption="Stakeholder Coverage", use_column_width=True)
+    with col2:
+        st.image("risk_type_coverage.png", caption="Risk Type Coverage", use_column_width=True)
+    with col3:
+        st.image("cluster_coverage.png", caption="Cluster Coverage", use_column_width=True)
+
+# --- Section 4: Review Suggested Risks ---
+if 'missed_risks' in st.session_state:
+    st.subheader("4️⃣ Review Suggested Risks")
+    st.write("Review AI-suggested risks. Give a thumbs-up if you agree (copy to Mural manually), or thumbs-down with a reason if you disagree.")
     
     for idx, risk in enumerate(st.session_state['missed_risks']):
         risk_key = f"risk_{idx}"
@@ -459,8 +471,10 @@ if 'missed_risks' in st.session_state:
                     else:
                         st.error("Please provide a reason for disagreement.")
 
-# --- Section 4: Brainstorming Assistant ---
-st.subheader("4️⃣ Brainstorm with AI")
+# --- Section 5: Brainstorming Assistant ---
+st.subheader("5️⃣ Brainstorm with AI")
+st.write("Generate creative risk suggestions based on your criteria.")
+num_brainstorm_risks = st.slider("Number of Brainstorm Suggestions", 1, 5, 5)
 stakeholder_options = sorted(df['stakeholder'].dropna().unique())
 risk_type_options = sorted(df['risk_type'].dropna().unique())
 
@@ -477,7 +491,7 @@ if st.button("💡 Suggest AI-Generated Risks"):
             filt = filt[filt['stakeholder'] == stakeholder]
         if risk_type != "Any":
             filt = filt[filt['risk_type'] == risk_type]
-        top_suggestions = filt.sort_values(by='combined_score', ascending=False).head(5)
+        top_suggestions = filt.sort_values(by='combined_score', ascending=False).head(num_brainstorm_risks)
 
         suggestions = "\n".join(f"- {r}" for r in top_suggestions['risk_description'].tolist())
 
@@ -497,7 +511,7 @@ if st.button("💡 Suggest AI-Generated Risks"):
                 ]
             )
             brainstorm_output = result.choices[0].message.content
-            st.markdown("### 🧠 AI Brainstorm Suggestions:")
+            st.markdown("### 🧠 Brainstorm Suggestions:")
             st.markdown(brainstorm_output)
         except Exception as e:
             st.error(f"OpenAI API error: {str(e)}")
