@@ -488,7 +488,7 @@ if 'feedback' in st.session_state:
 
 # --- Section 5: Brainstorming Assistant ---
 st.subheader("5️⃣ Brainstorm Risks")
-st.write("Generate creative risk ideas based on your criteria.")
+st.write("Generate creative risk ideas and provide feedback.")
 num_brainstorm_risks = st.slider("Number of Suggestions", 1, 5, 5)
 stakeholder_options = sorted(df['stakeholder'].dropna().unique())
 risk_type_options = sorted(df['risk_type'].dropna().unique())
@@ -514,7 +514,7 @@ if st.button("💡 Generate Suggestions"):
         Generate {num_brainstorm_risks} creative risk suggestions for an AI deployment based on these:
         {suggestions}
 
-        Phrase them to help identify overlooked risks.
+        Phrase them to help identify overlooked risks. Provide each suggestion as a concise bullet point.
         """
 
         try:
@@ -526,7 +526,40 @@ if st.button("💡 Generate Suggestions"):
                 ]
             )
             brainstorm_output = result.choices[0].message.content
-            st.markdown("### Brainstorm Suggestions:")
-            st.markdown(brainstorm_output)
+            # Parse bullet points into a list
+            brainstorm_suggestions = [s.strip() for s in brainstorm_output.split('\n') if s.strip().startswith('- ')]
+            brainstorm_suggestions = [s[2:].strip() for s in brainstorm_suggestions]
+            st.session_state['brainstorm_suggestions'] = brainstorm_suggestions[:num_brainstorm_risks]
         except Exception as e:
             st.error(f"OpenAI API error: {str(e)}")
+
+# Display Brainstorming Suggestions with Feedback
+if 'brainstorm_suggestions' in st.session_state:
+    st.markdown("### Brainstorm Suggestions:")
+    st.write("Vote on AI-generated ideas. Agree to add manually to Mural, or disagree with a reason.")
+    
+    for idx, suggestion in enumerate(st.session_state['brainstorm_suggestions']):
+        suggestion_key = f"brainstorm_{idx}"
+        short_text = suggestion[:200] + ("..." if len(suggestion) > 200 else "")
+        
+        st.markdown(f"**Idea {idx + 1}:** {short_text}")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("👍 Agree", key=f"agree_{suggestion_key}"):
+                log_feedback(suggestion, "agree")
+                st.success("Thanks! Copy this idea to add it to Mural manually.")
+        with col2:
+            if st.button("👎 Disagree", key=f"disagree_{suggestion_key}"):
+                st.session_state[f"show_disagree_{suggestion_key}"] = True
+        
+        if st.session_state.get(f"show_disagree_{suggestion_key}", False):
+            with st.form(key=f"disagree_form_{suggestion_key}"):
+                disagreement_reason = st.text_area("Why do you disagree?", key=f"reason_{suggestion_key}", height=100)
+                if st.form_submit_button("Submit"):
+                    if disagreement_reason.strip():
+                        log_feedback(suggestion, "disagree", disagreement_reason)
+                        st.success("Disagreement noted. Thanks for your input!")
+                        st.session_state[f"show_disagree_{suggestion_key}"] = False
+                    else:
+                        st.error("Please provide a reason.")
