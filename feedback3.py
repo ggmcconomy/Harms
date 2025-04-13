@@ -302,15 +302,20 @@ try:
     # Drop overlooked_label column
     if 'overlooked_label' in df.columns:
         df = df.drop(columns=['overlooked_label'])
-    # Convert numeric columns to float
+    # Convert numeric columns to float and log issues
     numeric_columns = ['severity', 'probability', 'combined_score']
     for col in numeric_columns:
         if col in df.columns:
+            original = df[col].copy()
             df[col] = pd.to_numeric(df[col], errors='coerce')
-            # Log any non-numeric values before conversion
             if df[col].isna().any():
-                non_numeric = df[df[col].isna()][col].index
-                st.warning(f"Non-numeric values found in {col} at rows: {non_numeric.tolist()}. Converted to NaN.")
+                non_numeric_rows = df[df[col].isna()].index.tolist()
+                st.warning(f"Non-numeric values found in {col} at rows: {non_numeric_rows}. Converted to NaN.")
+                # Log a sample of problematic values
+                problematic_values = original[df[col].isna()].head().tolist()
+                st.warning(f"Sample problematic values in {col}: {problematic_values}")
+    # Log data types for verification
+    st.write("Data types after conversion:", df.dtypes)
 except FileNotFoundError:
     st.error(f"Clustered CSV {csv_file} not found. Please run generate_clustered_files.py first.")
     st.stop()
@@ -422,6 +427,8 @@ if st.button("🔍 Generate Feedback"):
 
                 # Filter for high-severity risks, ensuring NaN values are excluded
                 top_missed = df[(df['severity'].notna()) & (df['severity'] >= severity_threshold) & (~df['cluster'].isin(covered_clusters))]
+                if top_missed.empty:
+                    st.warning("No risks meet the severity threshold after filtering.")
                 top_missed = top_missed.sort_values(by='combined_score', ascending=False).head(num_missed_risks)
 
                 prompt = f"""
@@ -471,7 +478,7 @@ if st.button("🔍 Generate Feedback"):
                         except Exception as e:
                             st.error(f"Error generating coverage charts: {str(e)}")
 
-                    st.session_state['missed_risks'] = top_missed.to_dict(orient='records')
+                    st.session_state['missed_risks'] = top_missed.to_dict('records')
                     st.session_state['feedback'] = feedback
                     st.session_state['coverage_data'] = {
                         'covered_stakeholders': covered_stakeholders,
