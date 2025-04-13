@@ -1,3 +1,4 @@
+```python
 import os
 import json
 import uuid
@@ -5,13 +6,17 @@ import requests
 import pandas as pd
 import numpy as np
 import streamlit as st
+import sys
 from collections import Counter
+from urllib3.util.retry import Retry
+from requests.adapters import HTTPAdapter
+from urllib.parse import urlencode
+
+# Temporarily disable torch.classes to avoid Streamlit watcher error
+sys.modules['torch.classes'] = None
 from sentence_transformers import SentenceTransformer
 import faiss
 from openai import OpenAI
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-from urllib.parse import urlencode
 
 # --- Configuration ---
 st.set_page_config(page_title="AI Risk Feedback & Brainstorming", layout="wide")
@@ -31,7 +36,7 @@ try:
     MURAL_BOARD_ID = st.secrets["MURAL_BOARD_ID"]
     MURAL_REDIRECT_URI = st.secrets["MURAL_REDIRECT_URI"]
 except KeyError as e:
-    st.error(f"Missing secret: {e}. Please configure secrets in .streamlit/secrets.toml with MURAL_CLIENT_ID, MURAL_CLIENT_SECRET, MURAL_BOARD_ID, MURAL_REDIRECT_URI.")
+    st.error(f"Missing secret: {e}. Please configure secrets in .streamlit/secrets.toml.")
     st.stop()
 st.text("Secrets loaded.")
 
@@ -62,7 +67,7 @@ def exchange_code_for_token(code):
             "grant_type": "authorization_code"
         }
         try:
-            response = requests.post(url, data=data, timeout=5)
+            response = requests.post(url, data=data, timeout=10)
             if response.status_code == 200:
                 st.text("Token received.")
                 return response.json()
@@ -84,7 +89,7 @@ def refresh_access_token(refresh_token):
             "grant_type": "refresh_token"
         }
         try:
-            response = requests.post(url, data=data, timeout=5)
+            response = requests.post(url, data=data, timeout=10)
             if response.status_code == 200:
                 st.text("Token refreshed.")
                 return response.json()
@@ -113,8 +118,8 @@ if auth_code and not st.session_state.access_token:
         st.session_state.refresh_token = token_data.get("refresh_token")
         st.session_state.token_expires_in = token_data.get("expires_in", 900)
         st.session_state.token_timestamp = pd.Timestamp.now().timestamp()
-        st.write("Debug: Access Token:", st.session_state.access_token)  # Debug
-        st.write("Debug: Token Scopes:", token_data.get('scope', 'Not set'))  # Debug
+        st.write("Debug: Access Token:", st.session_state.access_token)
+        st.write("Debug: Token Scopes:", token_data.get('scope', 'Not set'))
         st.query_params.clear()
         st.success("Authenticated with Mural!")
         st.rerun()
@@ -163,8 +168,8 @@ except FileNotFoundError:
     st.error(f"Index file {index_file} not found. Please run generate_clustered_files.py first.")
     st.stop()
 
-# Initialize embedder (for new inputs)
-st.text("Loading SentenceTransformer for new inputs...")
+# Initialize embedder
+st.text("Loading SentenceTransformer...")
 embedder = SentenceTransformer('all-MiniLM-L6-v2')
 st.text("Dataset and models loaded.")
 
@@ -195,7 +200,7 @@ with st.sidebar:
                     st.write("Debug: Extracted Stickies:", stickies)
                     st.session_state['mural_notes'] = stickies
                     st.write("Debug: mural_notes in session state:", st.session_state['mural_notes'])
-                    st.success(f"Pulled {len(sties)} sticky notes from Mural.")
+                    st.success(f"Pulled {len(stickies)} sticky notes from Mural.")
                 else:
                     st.error(f"Failed to pull from Mural: {mural_data.status_code} - {mural_data.text}")
                     if mural_data.status_code == 401:
@@ -204,7 +209,7 @@ with st.sidebar:
                         auth_url = get_authorization_url()
                         st.markdown(f"[Re-authorize the app]({auth_url}).")
                     elif mural_data.status_code == 403:
-                        st.warning("Access denied. Ensure your account is a collaborator on the mural: https://app.mural.co/t/aiimpacttesting2642/m/aiimpacttesting2642/1744527223386.")
+                        st.warning("Access denied. Ensure your account is a collaborator.")
                     elif mural_data.status_code == 404:
                         st.warning("Mural not found. Confirm MURAL_BOARD_ID is '1744527223386'.")
                     st.write("Raw API response:", mural_data.json())
@@ -354,7 +359,7 @@ if st.button("💡 Suggest AI-Generated Risks"):
 
         try:
             result = openai_client.chat.completions.create(
-                model="gmt-4o",
+                model="gpt-4o",
                 messages=[
                     {"role": "system", "content": "You are an AI brainstorming assistant for strategic risk workshops."},
                     {"role": "user", "content": prompt}
@@ -365,3 +370,4 @@ if st.button("💡 Suggest AI-Generated Risks"):
             st.markdown(brainstorm_output)
         except Exception as e:
             st.error(f"OpenAI API error: {str(e)}")
+```
