@@ -84,16 +84,12 @@ def get_cluster_labels(df):
     for cluster_id in df['cluster'].unique():
         cluster_risks = df[df['cluster'] == cluster_id]['risk_description'].dropna()
         if not cluster_risks.empty:
-            # Combine all risk descriptions in the cluster
             text = ' '.join(cluster_risks).lower()
-            # Tokenize and remove common stopwords
             words = re.findall(r'\b\w+\b', text)
             stopwords = {'the', 'and', 'of', 'to', 'in', 'a', 'is', 'that', 'for', 'on', 'with', 'by', 'at', 'this', 'but', 'from', 'or', 'an', 'are'}
             words = [w for w in words if w not in stopwords and len(w) > 3]
-            # Get most common words
             word_counts = Counter(words)
             top_words = [word for word, _ in word_counts.most_common(2)]
-            # Create label
             label = ' '.join(top_words).title() if top_words else f"Cluster {cluster_id}"
             cluster_labels[cluster_id] = label
         else:
@@ -166,7 +162,6 @@ def create_coverage_charts(covered_stakeholders, missed_stakeholders, covered_ty
     missed_counts = [missed_counts[i] for i in non_zero_indices]
     
     if clusters:
-        # Use descriptive cluster labels
         cluster_display_labels = [cluster_labels.get(c, f"Cluster {c}") for c in clusters]
         create_coverage_chart("Cluster Coverage Gaps", cluster_display_labels, covered_counts, missed_counts, 'cluster_coverage.png')
     else:
@@ -304,6 +299,14 @@ index_file = 'faiss_index.faiss'
 
 try:
     df = pd.read_csv(csv_file)
+    # Drop overlooked_label column
+    if 'overlooked_label' in df.columns:
+        df = df.drop(columns=['overlooked_label'])
+    # Convert numeric columns to float
+    numeric_columns = ['severity', 'probability', 'combined_score']
+    for col in numeric_columns:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
 except FileNotFoundError:
     st.error(f"Clustered CSV {csv_file} not found. Please run generate_clustered_files.py first.")
     st.stop()
@@ -413,7 +416,8 @@ if st.button("🔍 Generate Feedback"):
                 missed_types = sorted(list(set(df['risk_type']) - covered_types))
                 missed_stakeholders = sorted(list(set(df['stakeholder']) - covered_stakeholders))
 
-                top_missed = df[(df['severity'] >= severity_threshold) & (~df['cluster'].isin(covered_clusters))]
+                # Filter for high-severity risks, ensuring NaN values are excluded
+                top_missed = df[(df['severity'].notna()) & (df['severity'] >= severity_threshold) & (~df['cluster'].isin(covered_clusters))]
                 top_missed = top_missed.sort_values(by='combined_score', ascending=False).head(num_missed_risks)
 
                 prompt = f"""
@@ -443,7 +447,6 @@ if st.button("🔍 Generate Feedback"):
                     feedback = None
 
                 if feedback:
-                    # Prepare data for coverage charts
                     covered_stakeholders = [r['stakeholder'] for group in similar_risks for r in group]
                     covered_types = [r['risk_type'] for group in similar_risks for r in group]
                     covered_clusters = [r['cluster'] for group in similar_risks for r in group]
@@ -451,7 +454,6 @@ if st.button("🔍 Generate Feedback"):
                     missed_types = top_missed['risk_type'].tolist()
                     missed_clusters = top_missed['cluster'].tolist()
 
-                    # Validate chart data
                     if not (covered_stakeholders or missed_stakeholders or covered_types or missed_types or covered_clusters or missed_clusters):
                         st.warning("No data available for coverage charts.")
                     else:
@@ -571,7 +573,6 @@ if st.button("💡 Generate Suggestions"):
                 ]
             )
             brainstorm_output = result.choices[0].message.content
-            # Parse bullet points into a list
             brainstorm_suggestions = [s.strip() for s in brainstorm_output.split('\n') if s.strip().startswith('- ')]
             brainstorm_suggestions = [s[2:].strip() for s in brainstorm_suggestions]
             st.session_state['brainstorm_suggestions'] = brainstorm_suggestions[:num_brainstorm_risks]
