@@ -116,7 +116,7 @@ def create_coverage_chart(title, categories, covered_counts, missed_counts, file
         st.error(f"Error creating chart {filename}: {str(e)}")
         return False
 
-def create_coverage_charts(covered_stakeholders, missed_stakeholders, covered_types, missed_types, covered_subtypes, missed_subtypes, covered_clusters, missed_clusters, cluster_labels):
+def create_coverage_charts(covered_stakeholders, missed_stakeholders, covered_types, missed_types, covered_subtypes, missed_subtypes, covered_clusters, missed_clusters, cluster_labels, top_n_subtypes=5):
     """Create bar charts for coverage visualization."""
     try:
         plt.style.use('ggplot')
@@ -152,14 +152,14 @@ def create_coverage_charts(covered_stakeholders, missed_stakeholders, covered_ty
     else:
         st.warning("No risk type data to display.")
 
-    # Risk Subtype Chart (Top 5 Missed Only)
+    # Risk Subtype Chart (Top N Missed Only)
     subtype_counts = Counter(missed_subtypes)
-    top_missed_subtypes = [subtype for subtype, _ in subtype_counts.most_common(5)]
+    top_missed_subtypes = [subtype for subtype, _ in subtype_counts.most_common(top_n_subtypes)]
     covered_counts = [covered_subtypes.count(s) for s in top_missed_subtypes]
     missed_counts = [missed_subtypes.count(s) for s in top_missed_subtypes]
     
     if top_missed_subtypes:
-        create_coverage_chart("Top 5 Overlooked Risk Subtype Gaps", top_missed_subtypes, covered_counts, missed_counts, 'risk_subtype_coverage.png')
+        create_coverage_chart(f"Top {top_n_subtypes} Overlooked Risk Subtype Gaps", top_missed_subtypes, covered_counts, missed_counts, 'risk_subtype_coverage.png')
     else:
         st.warning("No risk subtype data to display.")
 
@@ -410,6 +410,7 @@ user_input = st.text_area("", value=default_text, height=200, placeholder="Enter
 # --- Section 2: Generate Coverage Feedback ---
 st.subheader("2️⃣ Coverage Feedback")
 st.write("Analyze gaps in your risk coverage with examples.")
+top_n_subtypes = st.slider("Top N Overlooked Subtypes to Display", 3, 10, 5)
 if st.button("🔍 Generate Coverage Feedback"):
     with st.spinner("Analyzing coverage..."):
         if user_input.strip():
@@ -438,13 +439,17 @@ if st.button("🔍 Generate Coverage Feedback"):
                 underrepresented_subtypes = [s for s in df['risk_subtype'].unique() if human_subtypes.count(s) < df['risk_subtype'].value_counts()[s] * 0.1]
                 underrepresented_stakeholders = [s for s in df['stakeholder'].unique() if human_stakeholders.count(s) < df['stakeholder'].value_counts()[s] * 0.1]
 
-                # Prepare coverage feedback prompt
+                # Prepare coverage feedback prompt using CSV as RAG context
                 domain = df['domain'].iloc[0] if 'domain' in df.columns else "AI deployment"
+                csv_context = df[['risk_description', 'risk_type', 'risk_subtype', 'stakeholder']].to_string(index=False)
                 prompt = f"""
                 You are an AI risk analysis expert for {domain}. The user has identified these finalized risks from Mural:
                 {chr(10).join(f'- {r}' for r in human_risks)}
 
-                Analyze the coverage of these risks against the risk database and provide:
+                Using the risk database below as context, analyze the coverage of these risks and provide:
+                ```
+                {csv_context}
+                ```
                 1. **Gaps in Coverage**: Identify unconsidered areas with specific examples:
                    - Unconsidered Clusters: {missed_clusters}
                    - Unconsidered Risk Types: {missed_types}
@@ -455,7 +460,7 @@ if st.button("🔍 Generate Coverage Feedback"):
                    - Risk Subtypes: {underrepresented_subtypes}
                    - Stakeholders: {underrepresented_stakeholders}
 
-                For each gap or underrepresented area, provide a concrete example of a risk that could be considered to address it. Explain why these gaps matter and how addressing them can improve risk analysis. Encourage adding inspired risks to Mural and re-pulling data for mitigation analysis.
+                For each gap or underrepresented area, provide a specific example of a risk that could be considered, generated or adapted from the risk database. Explain why these gaps matter and how addressing them improves risk analysis. Encourage adding inspired risks to Mural and re-pulling data for mitigation analysis. Do not include a list of suggested risks to add; focus only on examples within the feedback.
                 """
 
                 try:
@@ -482,13 +487,14 @@ if st.button("🔍 Generate Coverage Feedback"):
                     missed_subtypes_list = missed_subtypes
                     missed_clusters_list = missed_clusters
 
-                    # Generate coverage charts
+                    # Generate coverage charts with user-selected top_n_subtypes
                     create_coverage_charts(
                         covered_stakeholders_list, missed_stakeholders_list,
                         covered_types_list, missed_types_list,
                         covered_subtypes_list, missed_subtypes_list,
                         covered_clusters_list, missed_clusters_list,
-                        cluster_labels
+                        cluster_labels,
+                        top_n_subtypes=top_n_subtypes
                     )
 
                     st.session_state['feedback'] = feedback
@@ -518,7 +524,7 @@ if 'coverage_data' in st.session_state:
         with col2:
             st.image("risk_type_coverage.png", caption="Risk Type Gaps", use_container_width=True)
         with col3:
-            st.image("risk_subtype_coverage.png", caption="Top 5 Overlooked Subtype Gaps", use_container_width=True)
+            st.image("risk_subtype_coverage.png", caption=f"Top {top_n_subtypes} Overlooked Subtype Gaps", use_container_width=True)
         with col4:
             st.image("cluster_coverage.png", caption="Cluster Gaps", use_container_width=True)
     except FileNotFoundError:
